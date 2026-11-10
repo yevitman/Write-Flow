@@ -50,13 +50,48 @@ const COMMENTARY_START_WORDS = [
   '한편', '결국', '주목할 것은', '사도 바울은', '저자는'
 ];
 
+function isOutlineHeader(line: string): boolean {
+  const clean = line
+    .replace(/^[*_#\s`~\[\]【】■●◆▶★·\-\d\.]+/g, '')
+    .replace(/[*_#\s`~\[\]【】■●◆▶★·\-\:]+$/g, '')
+    .trim();
+
+  if (/^(개요|전체\s*개요|설교\s*개요|본문\s*개요|내용\s*개요|강해\s*개요|대지|설교\s*대지|요약|목차|outline)$/i.test(clean)) {
+    return true;
+  }
+
+  const cleanWithPrefix = line
+    .replace(/^[*_#\s`~\[\]【】■●◆▶★·\-]+/g, '')
+    .replace(/[*_#\s`~\[\]【】■●◆▶★·\-]+$/g, '')
+    .trim();
+
+  return (
+    /^[I|V|X\d]+[\.\)\s\-]+.*(개요|대지|outline)/i.test(cleanWithPrefix) ||
+    /^(개요|전체\s*개요|설교\s*개요|본문\s*개요|내용\s*개요|대지)(\s*[:\-]|$)/i.test(cleanWithPrefix) ||
+    /(개요|outline)\s*$/i.test(cleanWithPrefix)
+  );
+}
+
+function isOutlineTerminator(line: string): boolean {
+  const clean = line
+    .replace(/^[*_#\s`~\[\]【】■●◆▶★·\-]+/g, '')
+    .trim();
+  return (
+    /^[I|V|X]+\.\s+(?!.*(개요|대지))/i.test(clean) ||
+    /^(III|IV|V|VI|VII)\./i.test(clean) ||
+    /^(본론|본문\s*연구|결론|적용|설교\s*본론)\s*[:\.]?/i.test(clean) ||
+    /^#\s+[^\n]+/.test(line)
+  );
+}
+
 export function parseManuscriptToParagraphs(text: string): FormattedParagraph[] {
   if (!text || !text.trim()) return [];
 
   const rawLines = text
     .split(/\r?\n/)
     .map((l) => l.trim())
-    .filter((l) => l.length > 0);
+    .filter((l) => l.length > 0)
+    .map((l) => l.replace(/([0-9]+)\\\./g, '$1.').replace(/\\([.\-_)\]])/g, '$1'));
 
   let inOutlineSection = false;
   let outlineCounter = 1;
@@ -69,7 +104,7 @@ export function parseManuscriptToParagraphs(text: string): FormattedParagraph[] 
     const id = `p-${Date.now()}-${index + 1}`;
 
     // 1. Check Document Title (e.g. line starts with # or prominent title)
-    if (line.startsWith('# ')) {
+    if (line.startsWith('# ') && !isOutlineHeader(line)) {
       result.push({
         id,
         originalText: line.replace(/^#\s*/, '').trim(),
@@ -81,45 +116,50 @@ export function parseManuscriptToParagraphs(text: string): FormattedParagraph[] 
       return;
     }
 
-    // 2. Check Roman numeral Heading 1 (e.g. I. 서론, II. 개요, III. 본문 연구)
-    if (/^[I|V|X]+\.\s*/i.test(line)) {
-      const isOutlineHeader = /(개요|outline)/i.test(line);
+    // 2. Check if this line is an Outline Section Header (e.g. "II. 개요", "## II. 개요", "개요:", "전체 개요")
+    if (isOutlineHeader(line)) {
       result.push({
         id,
-        originalText: line,
+        originalText: line.replace(/^#{1,3}\s*/, '').trim(),
         type: 'heading_1',
       });
-
-      if (isOutlineHeader) {
-        inOutlineSection = true;
-        outlineCounter = 1;
-      } else {
-        inOutlineSection = false;
-      }
+      inOutlineSection = true;
+      outlineCounter = 1;
       inScriptureBlock = false;
       activeVerseParagraphId = null;
       return;
     }
 
     // 3. Handle Outline Section
-    // User Specification: Outline items are treated as Normal Body (`body`), NOT a separate heading type.
-    // Sequenced with Arabic numbers (1. 2. 3.), line breaks per item, without blank lines between items.
+    // User Specification: Outline items are treated strictly as Normal Body (`body`) 10pt, NOT a separate heading type.
     if (inOutlineSection) {
-      // Check if outline section ends: next Roman Numeral (e.g. III. 본론) or major Markdown heading (# or ##)
-      if (/^[I|V|X]+\.\s*/i.test(line) || /^#{1,2}\s+/.test(line)) {
+      if (isOutlineTerminator(line)) {
         inOutlineSection = false;
+        // Fall through to parse this line as next section/heading
       } else {
-        // Strip any existing leading number from the text to prevent "1. 1." duplication
         const cleanedText = line.replace(/^([0-9]+|[①-⑳]|[I|V|X]+)[\.\)\-\s\:]*/, '').trim();
         result.push({
           id,
           originalText: cleanedText || line,
-          type: 'body', // Strictly 'body' type as per user prompt specification!
+          type: 'body', // Strictly 'body' type - NEVER a heading!
           isOutline: true,
           outlineNumber: outlineCounter++,
         });
         return;
       }
+    }
+
+    // 4. Check Roman numeral Heading 1 (e.g. I. 서론, III. 본문 연구, IV. 결론)
+    if (/^[I|V|X]+\.\s*/i.test(line)) {
+      result.push({
+        id,
+        originalText: line,
+        type: 'heading_1',
+      });
+      inOutlineSection = false;
+      inScriptureBlock = false;
+      activeVerseParagraphId = null;
+      return;
     }
 
     // 4. Check Markdown headings
@@ -164,7 +204,7 @@ export function parseManuscriptToParagraphs(text: string): FormattedParagraph[] 
       result.push({
         id,
         originalText: line,
-        type: 'scripture',
+        type: 'scripture_header',
       });
       return;
     }
@@ -228,9 +268,9 @@ export function parseManuscriptToParagraphs(text: string): FormattedParagraph[] 
       return;
     }
 
-    // 6. Check Arabic Numbered Headings (e.g. "1. 태초의 신비", "2. 창조의 사역")
-    // Note: only matches short titles, not long sentences ending in '다.', and not inside outline
-    if (/^[0-9]+\.\s+[^\n]{2,35}$/.test(line) && !line.includes('다.') && !line.includes('요.') && !line.includes('절')) {
+    // 6. Check Arabic Numbered Headings (e.g. "1. 태초의 신비", "5. 하나님의 어린양으로 오신 예수 그리스도 (29-34절)")
+    // Matches titles starting with number followed by period, not ending in '다.', and not inside outline
+    if (/^[0-9]+[\.\)]\s+[^\n]{2,70}$/.test(line) && !line.endsWith('다.') && !line.endsWith('요.') && !line.endsWith('다') && !line.endsWith('니다.')) {
       result.push({
         id,
         originalText: line,
@@ -263,5 +303,194 @@ export function parseManuscriptToParagraphs(text: string): FormattedParagraph[] 
     activeVerseParagraphId = null;
   });
 
+  // 8. 문맥 사전분석을 통한 단락별 핵심 강조어구 및 정의 단어 자동 지정
+  // 규칙:
+  // - 성경 본문/제목 및 일반 제목에는 일절 미적용 (빈 배열)
+  // - 일반 본문 단락마다 문맥 핵심 내용(어구/명제) 또는 정의 설명 단어 중심 추출
+  // - 동일 단어가 모든 문단에서 지루하게 반복되지 않도록 최근 강조어 추적 및 문단별 고유 핵심 어구 우선
+  const recentUsedWords: string[] = [];
+
+  result.forEach((p) => {
+    // 제목 및 성경 구절/장 이름은 일절 강조 적용 배제
+    if (
+      p.type === 'doc_title' ||
+      p.type === 'doc_subtitle' ||
+      p.type.startsWith('heading') ||
+      p.type === 'scripture_header' ||
+      p.type === 'scripture'
+    ) {
+      p.emphasisPhrases = [];
+      return;
+    }
+
+    // 일반 본문(body, quote) 및 개요 항목에 대해 단락별 핵심 어구 분석
+    const extracted = extractParagraphEmphasis(p.originalText, recentUsedWords);
+    p.emphasisPhrases = extracted;
+
+    // 최근 사용된 어구 목록 업데이트 (최근 6개 유지하여 과도한 중복 억제)
+    extracted.forEach((phrase) => {
+      recentUsedWords.push(phrase);
+      if (recentUsedWords.length > 6) {
+        recentUsedWords.shift();
+      }
+    });
+  });
+
   return result;
 }
+
+/**
+ * 추출된 어구가 어절(단어) 중간에서 잘리지 않도록 어절 경계로 안전하게 보정하는 함수
+ * - "력에 달려 있지 않다는..." -> "능력에 달려 있지 않다는..." (완전한 단어로 시작)
+ * - "에 내주하시며..." -> "안에 내주하시며..." 또는 "신자 안에 내주하시며..." (완전한 단어로 시작)
+ */
+export function alignToWordBoundary(fullText: string, phrase: string): string {
+  if (!phrase || !fullText.includes(phrase)) return phrase;
+  const idx = fullText.indexOf(phrase);
+  if (idx < 0) return phrase;
+
+  let start = idx;
+  let end = idx + phrase.length;
+
+  // 시작 위치가 단어 중간(앞에 공백/구두점 없이 한글/영문/숫자가 붙어있는 경우)이면 단어 시작점까지 확장
+  while (start > 0 && !/[\s,.:;!?'"“‘”’()[\]\n]/.test(fullText[start - 1])) {
+    start--;
+  }
+
+  // 끝 위치가 단어 중간(뒤에 공백/구두점 없이 한글/영문/숫자가 붙어있는 경우)이면 단어 끝점까지 확장
+  while (end < fullText.length && !/[\s,.:;!?'"“‘”’()[\]\n]/.test(fullText[end])) {
+    end++;
+  }
+
+  return fullText.slice(start, end).trim();
+}
+
+/**
+ * 단일 문단 텍스트를 사전 분석하여 핵심 어구(어구/문장/명제) 및 정의 단어 추출
+ * - 어절(단어) 중간 절단 절대 금지: 항상 완전한 단어로 시작하고 끝남
+ * - 사용자 지침: 단어의 뜻을 설명할 때만 정의 단어 지정, 문맥 속 핵심 내용인 명제/어구 볼드 처리
+ */
+export function extractParagraphEmphasis(text: string, recentUsedWords: string[] = []): string[] {
+  const p = text.trim();
+  if (!p) return [];
+
+  const targets: string[] = [];
+  const isRecent = (phrase: string) =>
+    recentUsedWords.some(
+      (r) => r === phrase || (r.length >= 3 && phrase.length >= 3 && (r.includes(phrase) || phrase.includes(r)))
+    );
+
+  const addTarget = (phrase: string) => {
+    if (!phrase) return;
+    const clean = alignToWordBoundary(p, phrase.trim());
+    if (clean.length >= 2 && !targets.includes(clean) && !isRecent(clean)) {
+      targets.push(clean);
+    }
+  };
+
+  // 1. 작성자가 원고에 명시적으로 지정한 볼드 마크다운 (**어구**)
+  const mdMatches = p.match(/\*\*(.+?)\*\*/g);
+  if (mdMatches) {
+    for (const m of mdMatches) {
+      const cleaned = m.replace(/\*\*/g, '').trim();
+      addTarget(cleaned);
+    }
+  }
+
+  // 2. [강조단어] 어떤 단어의 뜻이나 개념을 설명하거나 정의하는 경우의 단어 (사용자 지침: 단어 뜻 설명할 때만 적용)
+  // 예: '태초'라는 표현은, "정죄함이 없다"는 것은, '화목제물'이란, 여기서 '선'은 ...를 뜻한다
+  const definitionPatterns = [
+    /['"“‘]([가-힣a-zA-Z0-9\s]{1,12})['"”’]\s*(?:라는|이란|란|의\s*의미|을\s*뜻|를\s*뜻|표현은)/,
+    /(?:여기서\s+|이\s+)?['"“‘]?([가-힣]{1,8})['"”’]?(?:은|는|이란|란)\s+[^\n]{2,35}?(?:뜻한다|의미한다|가리킨다|말한다|것이\s*아니라)/,
+    /([가-힣]{2,8})(?:이란|란)\s+[^\n]{2,30}?(?:뜻한다|의미한다|가리킨다|말한다)/,
+    /([가-힣\s]{2,12})(?:이라는|라는)\s*(?:표현|말|단어|개념)은/,
+    /([가-힣\s]{2,12})(?:이|가)\s*없다는\s*것은/,
+  ];
+
+  for (const reg of definitionPatterns) {
+    const match = p.match(reg);
+    if (match && match[1]) {
+      const term = match[1].trim();
+      if (term.length >= 1 && term.length <= 12 && !targets.includes(term) && !isRecent(term)) {
+        targets.push(term);
+        break;
+      }
+    }
+  }
+
+  // 3. [강조어구] 문맥과 내용 중 핵심 내용인 명제 및 결론 어구 (단락의 핵심 메시지)
+  // (A) 대조/반전 핵심 명제 ("~가 아니라 [핵심 어구]이다/선언이다/사실이다/보여준다/하는 것이다")
+  const contrastMatch = p.match(
+    /(?:아니라|아닌),?\s*([가-힣\s]{4,60}?(?:하는\s*것이다|것이다|이다|선언이다|사실이다|진리이다|약속이다|표현이다|보여준다|말한다))/
+  );
+  if (contrastMatch && contrastMatch[1]) {
+    addTarget(contrastMatch[1]);
+  }
+
+  // (B) 주어-핵심 서술 명제 ("성령은/바울은/사도는 [신자 안에 내주하시며 그가 하나님의 자녀라는 사실을 증언한다]")
+  const subjMatch = p.match(
+    /(?:^|[.?!]\s*|\n)\s*(?:성령은|바울은|사도\s*바울은|사도는|저자는|성경은|본문은)\s+([가-힣\s]{4,60}?(?:증언한다|밝힌다|선언한다|보여준다|가르친다|말한다|증명한다))/
+  );
+  if (subjMatch && subjMatch[1]) {
+    addTarget(subjMatch[1]);
+  }
+
+  // (C) 핵심 진리 및 사실 강조 ("중요한 것은 [핵심 내용] 사실/점/것이다")
+  const importantMatch = p.match(
+    /(?:중요한\s*것은|주목할\s*점은|핵심은|기억할\s*것은)\s*([가-힣\s]{4,45}?(?:사실이다|점이다|진리이다|것이다))/
+  );
+  if (importantMatch && importantMatch[1]) {
+    addTarget(importantMatch[1]);
+  }
+
+  // (D) 신학적 선언 및 성격 ("이 말씀은/선언은 [핵심 성격] 표현/선언/약속이다")
+  const statementMatch = p.match(
+    /(?:이\s*말씀은|이\s*선언은|본문은|성경은)\s*([가-힣\s]{4,40}?(?:표현이다|선언이다|고백이다|약속이다|계시이다))/
+  );
+  if (statementMatch && statementMatch[1]) {
+    addTarget(statementMatch[1]);
+  }
+
+  // (E) 인과/구속 사역의 근거 ("~때문에/인하여 [핵심 결과/의미]다")
+  const causalMatch = p.match(
+    /([가-힣\s]{4,35}?(?:때문에|인하여)\s+[가-힣\s]{4,30}?(?:않는다는\s*의미다|의미다|뜻이다|구원이다|것이다))/
+  );
+  if (causalMatch && causalMatch[1]) {
+    addTarget(causalMatch[1]);
+  }
+
+  // (F) 대속 및 연합의 핵심 어구 ("~대신하여 [율법의 요구와 죄의 형벌을 담당하셨기 때문에]")
+  const substitutionMatch = p.match(
+    /([가-힣\s]{3,20}?(?:대신하여)\s+[가-힣\s]{4,35}?(?:담당하셨기\s*때문에|완성하셨기\s*때문에|것이다))/
+  );
+  if (substitutionMatch && substitutionMatch[1]) {
+    addTarget(substitutionMatch[1]);
+  }
+
+  // (G) 따옴표로 감싸진 핵심 인용구 (“...”, ‘...’)
+  const quoteMatch = p.match(/[“"「]([가-힣\s]{3,25})[”"」]/);
+  if (quoteMatch && quoteMatch[1]) {
+    addTarget(quoteMatch[1]);
+  }
+
+  // 4. 단락에 아직 강조어구가 없는 경우: 문맥 핵심 신학 어구 및 주제구 보강 (단락마다 반드시 1개 강조 보장)
+  if (targets.length === 0) {
+    const THEMATIC_REGEXES = [
+      /([가-힣\s]{2,15}?(?:구속\s*사역과\s*성령의\s*적용|구속\s*사역|대속의\s*은혜|그리스도와의\s*연합|하나님의\s*심판|율법의\s*요구와\s*죄의\s*형벌|율법의\s*요구|죄와\s*사망의\s*지배|사망의\s*몸에서\s*건져낼|성령의\s*적용|은혜와\s*진리|하나님의\s*어린양|영원한\s*생명|의롭다\s*하심|새\s*언약|창조의\s*선언|세례\s*요한의\s*증언)[가-힣\s]{0,10})/,
+      /([가-힣\s]{4,30}?(?:질문한다|선언한다|밝힌다|보여준다|증언한다|고백한다|증명한다))/,
+      /([가-힣\s]{3,25}?(?:죄의\s*형벌|그리스도와\s*연합|정죄함이\s*없나니|하나님의\s*의|절대적이고\s*영원한\s*선언))/,
+    ];
+
+    for (const reg of THEMATIC_REGEXES) {
+      const match = p.match(reg);
+      if (match && match[1]) {
+        addTarget(match[1]);
+        if (targets.length > 0) break;
+      }
+    }
+  }
+
+  // 단락당 최대 2개 선별 (보통 1~2개가 가장 가독성이 높고 핵심 전달이 잘 됨)
+  return targets.slice(0, 2);
+}
+

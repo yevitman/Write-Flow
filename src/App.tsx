@@ -9,11 +9,13 @@ import { PWAInstallButton } from './components/PWAInstallButton';
 import { ConfirmModal } from './components/ConfirmModal';
 import { PromptPreviewModal } from './components/PromptPreviewModal';
 import { FormatConversionPanel } from './components/FormatConversionPanel';
+import { OptionSelectModal, OptionItem } from './components/OptionSelectModal';
 import {
   RotateCcw,
   Eye,
   Check,
   ExternalLink,
+  ChevronDown,
 } from 'lucide-react';
 
 const STORAGE_KEY_BASE = 'ai_writer_base_v67';
@@ -27,6 +29,74 @@ const AVAILABLE_FORMATS = [
   '실무 문서',
   '영상 대본',
   '핵심 요약',
+];
+
+const DOMAIN_OPTIONS: OptionItem[] = [
+  { value: '자동 판별', label: '전문 분야: 자동 판별', badge: '기본' },
+  { value: '학술·전문 연구', label: '학술·전문 연구' },
+  { value: '역사·인물 연구', label: '역사·인물 연구' },
+  { value: '의학·건강 연구', label: '의학·건강 연구' },
+  { value: '과학·기술 연구', label: '과학·기술 연구' },
+  { value: '경제·금융·주식 연구', label: '경제·금융·주식 연구' },
+  { value: '사회·시사·정책 분석', label: '사회·시사·정책 분석' },
+  { value: '일반 정보·지식 블로그', label: '일반 정보·지식 블로그' },
+  { value: '창작·에세이·스토리텔링', label: '창작·에세이·스토리텔링' },
+  { value: '업무·실무 문서', label: '업무·실무 문서' },
+  { value: '유튜브·쇼츠·온라인 콘텐츠', label: '유튜브·쇼츠·온라인 콘텐츠' },
+  { value: '법률·제도 및 행정 연구', label: '법률·제도 및 행정 연구' },
+];
+
+const WORK_OPTIONS: OptionItem[] = [
+  { value: '자동 판별', label: '작업 유형: 자동 판별', badge: '기본' },
+  { value: '심층 연구형', label: '심층 연구형' },
+  { value: '정보 설명형', label: '정보 설명형' },
+  { value: '창작형', label: '창작형' },
+  { value: '실무 문서형', label: '실무 문서형' },
+  { value: '온라인 콘텐츠형', label: '온라인 콘텐츠형' },
+];
+
+const AUDIENCE_OPTIONS: OptionItem[] = [
+  { value: '주제에 맞게 판단', label: '대상 독자: 주제에 맞게 판단', badge: '기본' },
+  { value: '일반 독자', label: '일반 독자' },
+  { value: '초급 학습자', label: '초급 학습자' },
+  { value: '전문가·전공자', label: '전문가·전공자' },
+  { value: '학생·교육 대상', label: '학생·교육 대상' },
+  { value: '온라인 시청자', label: '온라인 시청자' },
+];
+
+const LENGTH_OPTIONS: OptionItem[] = [
+  { value: '주제에 맞게 판단', label: '작성 분량: 주제에 맞게 판단', badge: '기본' },
+  { value: '짧고 핵심적으로', label: '짧고 핵심적으로' },
+  { value: '보통 분량', label: '보통 분량' },
+  { value: '상세하고 충분하게', label: '상세하고 충분하게' },
+  { value: 'A4 3~5장', label: 'A4 3~5장' },
+  { value: 'A4 5~7장', label: 'A4 5~7장' },
+  { value: '사용자 지정 요구 우선', label: '사용자 지정 요구 우선' },
+];
+
+const STYLE_OPTIONS: OptionItem[] = [
+  { value: '주제와 독자에 맞게 판단', label: '주제와 독자에 맞게 판단', badge: '기본' },
+  { value: '문어체 평서문', label: '문어체 평서문' },
+  { value: '쉽고 간결한 설명체', label: '쉽고 간결한 설명체' },
+  { value: '학술적·전문적 문체', label: '학술적·전문적 문체' },
+  { value: '친근한 블로그 문체', label: '친근한 블로그 문체' },
+  { value: '설득력 있는 콘텐츠 문체', label: '설득력 있는 콘텐츠 문체' },
+];
+
+const RESEARCH_OPTIONS: OptionItem[] = [
+  { value: '작업 목적에 맞게 판단', label: '작업 목적에 맞게 판단', badge: '기본' },
+  { value: '기초 지식 중심', label: '기초 지식 중심' },
+  { value: '근거 확인 및 교차 검증', label: '근거 확인 및 교차 검증' },
+  { value: '최신 자료와 학술 연구까지 심층 조사', label: '최신 자료와 학술 연구까지 심층 조사' },
+  { value: '사용자가 제공한 자료만 활용', label: '사용자가 제공한 자료만 활용' },
+];
+
+const CITATION_OPTIONS: OptionItem[] = [
+  { value: '필요한 경우 출처 제시', label: '필요한 경우 출처 제시', badge: '기본' },
+  { value: '핵심 주장마다 근거와 출처 표시', label: '핵심 주장마다 근거와 출처 표시' },
+  { value: '학술 인용 형식', label: '학술 인용 형식' },
+  { value: '본문 내 출처와 참고문헌 구분', label: '본문 내 출처와 참고문헌 구분' },
+  { value: '외부 자료 조사 없이 작성', label: '외부 자료 조사 없이 작성' },
 ];
 
 interface SettingsState {
@@ -55,10 +125,28 @@ const DEFAULT_FORMAT_SETTINGS: FormatSettingsState = {
   lineHeight: '1.35',
   alignment: '양쪽 정렬',
   headingHierarchy: '문서 제목 18pt | 제목 1: 16pt | 제목 2: 14pt | 제목 3: 13pt | 하위 제목: 12pt',
-  numberingStyle: 'I. II. III. → 1. 2. 3. → 1) 2) 3) → (1) (2) (3) → ① ② ③',
-  scriptureCitationRule: '본문 9pt, 주황색 (#E65100), 굵게 (Bold), 연속 문단으로 작성',
+  numberingStyle: 'I. II. III. → 1. 2. 3. → 1) 2) 3) (번호 뒤에 백슬래시 \\를 붙이지 말 것)',
+  scriptureCitationRule: '성경 장 이름 10pt, 본문 9pt, 은은한 주황색 (#EA580C), 굵게 (Bold), 장 이름 뒤 빈 줄 없이 연속 문단으로 작성. 본문 연구 시 구절을 해설할 때는 반드시 해당 성경 구절 본문 전체를 먼저 인용 표기한 후 해설할 것',
   customFormatNotes: '',
 };
+
+interface CustomSelectTriggerProps {
+  label: string;
+  onClick: () => void;
+}
+
+function CustomSelectTrigger({ label, onClick }: CustomSelectTriggerProps) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="w-full px-2 h-[28px] border border-[#fdba74] rounded-[6px] text-[11px] bg-gradient-to-b from-white to-[#fffbeb] text-[#1e293b] outline-none shadow-[inset_0_1px_3px_rgba(0,0,0,0.04)] cursor-pointer flex items-center justify-between text-left hover:border-orange-400 active:bg-orange-50/50 transition group"
+    >
+      <span className="truncate pr-1 font-medium">{label}</span>
+      <ChevronDown className="w-3.5 h-3.5 text-orange-400 group-hover:text-orange-600 flex-shrink-0 transition-colors" />
+    </button>
+  );
+}
 
 export default function App() {
   const [activeTab, setActiveTab] = useState<'write' | 'settings' | 'format'>('write');
@@ -71,6 +159,14 @@ export default function App() {
   const [audience, setAudience] = useState('주제에 맞게 판단');
   const [length, setLength] = useState('주제에 맞게 판단');
   const [selectedFormats, setSelectedFormats] = useState<string[]>(['완성 원고']);
+
+  // Custom Select Modal State (사진 1의 안드로이드 기본 select 팝업 대체)
+  const [activeModal, setActiveModal] = useState<{
+    title: string;
+    options: OptionItem[];
+    selectedValue: string;
+    onSelect: (val: string) => void;
+  } | null>(null);
 
   // Tab 2: Settings state
   const [settings, setSettings] = useState<SettingsState>({
@@ -382,66 +478,55 @@ ${formatSettings.customFormatNotes.trim() ? `- 추가 서식 지침: ${formatSet
                 />
               </div>
 
-              {/* 4단 선택 옵션 그리드 */}
+              {/* 4단 선택 옵션 그리드 (사진 2와 완벽히 일치하는 콤팩트한 웜 오렌지 커스텀 트리거) */}
               <div className="grid grid-cols-2 gap-1.5 mb-2 flex-shrink-0">
-                <select
-                  value={domain}
-                  onChange={(e) => setDomain(e.target.value)}
-                  className="w-full px-1.5 h-[28px] border border-[#fdba74] rounded-[6px] text-[11px] bg-gradient-to-b from-white to-[#fffbeb] text-[#1e293b] outline-none shadow-[inset_0_1px_3px_rgba(0,0,0,0.04)] cursor-pointer truncate"
-                >
-                  <option value="자동 판별">전문 분야: 자동 판별</option>
-                  <option value="학술·전문 연구">학술·전문 연구</option>
-                  <option value="역사·인물 연구">역사·인물 연구</option>
-                  <option value="의학·건강 연구">의학·건강 연구</option>
-                  <option value="과학·기술 연구">과학·기술 연구</option>
-                  <option value="경제·금융·주식 연구">경제·금융·주식 연구</option>
-                  <option value="사회·시사·정책 분석">사회·시사·정책 분석</option>
-                  <option value="일반 정보·지식 블로그">일반 정보·지식 블로그</option>
-                  <option value="창작·에세이·스토리텔링">창작·에세이·스토리텔링</option>
-                  <option value="업무·실무 문서">업무·실무 문서</option>
-                  <option value="유튜브·쇼츠·온라인 콘텐츠">유튜브·쇼츠·온라인 콘텐츠</option>
-                  <option value="법률·제도 및 행정 연구">법률·제도 및 행정 연구</option>
-                </select>
+                <CustomSelectTrigger
+                  label={`전문 분야: ${domain}`}
+                  onClick={() =>
+                    setActiveModal({
+                      title: '전문 분야 선택',
+                      options: DOMAIN_OPTIONS,
+                      selectedValue: domain,
+                      onSelect: (val) => setDomain(val),
+                    })
+                  }
+                />
 
-                <select
-                  value={work}
-                  onChange={(e) => setWork(e.target.value)}
-                  className="w-full px-1.5 h-[28px] border border-[#fdba74] rounded-[6px] text-[11px] bg-gradient-to-b from-white to-[#fffbeb] text-[#1e293b] outline-none shadow-[inset_0_1px_3px_rgba(0,0,0,0.04)] cursor-pointer truncate"
-                >
-                  <option value="자동 판별">작업 유형: 자동 판별</option>
-                  <option value="심층 연구형">심층 연구형</option>
-                  <option value="정보 설명형">정보 설명형</option>
-                  <option value="창작형">창작형</option>
-                  <option value="실무 문서형">실무 문서형</option>
-                  <option value="온라인 콘텐츠형">온라인 콘텐츠형</option>
-                </select>
+                <CustomSelectTrigger
+                  label={`작업 유형: ${work}`}
+                  onClick={() =>
+                    setActiveModal({
+                      title: '작업 유형 선택',
+                      options: WORK_OPTIONS,
+                      selectedValue: work,
+                      onSelect: (val) => setWork(val),
+                    })
+                  }
+                />
 
-                <select
-                  value={audience}
-                  onChange={(e) => setAudience(e.target.value)}
-                  className="w-full px-1.5 h-[28px] border border-[#fdba74] rounded-[6px] text-[11px] bg-gradient-to-b from-white to-[#fffbeb] text-[#1e293b] outline-none shadow-[inset_0_1px_3px_rgba(0,0,0,0.04)] cursor-pointer truncate"
-                >
-                  <option value="주제에 맞게 판단">대상 독자: 주제에 맞게 판단</option>
-                  <option value="일반 독자">일반 독자</option>
-                  <option value="초급 학습자">초급 학습자</option>
-                  <option value="전문가·전공자">전문가·전공자</option>
-                  <option value="학생·교육 대상">학생·교육 대상</option>
-                  <option value="온라인 시청자">온라인 시청자</option>
-                </select>
+                <CustomSelectTrigger
+                  label={`대상 독자: ${audience}`}
+                  onClick={() =>
+                    setActiveModal({
+                      title: '대상 독자 선택',
+                      options: AUDIENCE_OPTIONS,
+                      selectedValue: audience,
+                      onSelect: (val) => setAudience(val),
+                    })
+                  }
+                />
 
-                <select
-                  value={length}
-                  onChange={(e) => setLength(e.target.value)}
-                  className="w-full px-1.5 h-[28px] border border-[#fdba74] rounded-[6px] text-[11px] bg-gradient-to-b from-white to-[#fffbeb] text-[#1e293b] outline-none shadow-[inset_0_1px_3px_rgba(0,0,0,0.04)] cursor-pointer truncate"
-                >
-                  <option value="주제에 맞게 판단">작성 분량: 주제에 맞게 판단</option>
-                  <option value="짧고 핵심적으로">짧고 핵심적으로</option>
-                  <option value="보통 분량">보통 분량</option>
-                  <option value="상세하고 충분하게">상세하고 충분하게</option>
-                  <option value="A4 3~5장">A4 3~5장</option>
-                  <option value="A4 5~7장">A4 5~7장</option>
-                  <option value="사용자 지정 요구 우선">사용자 지정 요구 우선</option>
-                </select>
+                <CustomSelectTrigger
+                  label={`작성 분량: ${length}`}
+                  onClick={() =>
+                    setActiveModal({
+                      title: '작성 분량 선택',
+                      options: LENGTH_OPTIONS,
+                      selectedValue: length,
+                      onSelect: (val) => setLength(val),
+                    })
+                  }
+                />
               </div>
 
               {/* 결과물 형식 영역: 4개 선택창 바로 아래로 당겨 올림 */}
@@ -498,56 +583,51 @@ ${formatSettings.customFormatNotes.trim() ? `- 추가 서식 지침: ${formatSet
                   <label className="text-[10.5px] font-bold text-[#475569] block mb-0.5">
                     문체
                   </label>
-                  <select
-                    value={settings.style}
-                    onChange={(e) => setSettings({ ...settings, style: e.target.value })}
-                    className="w-full px-2 h-[28px] border border-[#fdba74] rounded-[6px] text-[11px] bg-gradient-to-b from-white to-[#fffbeb] text-[#1e293b] outline-none shadow-[inset_0_1px_3px_rgba(0,0,0,0.04)]"
-                  >
-                    <option value="주제와 독자에 맞게 판단">주제와 독자에 맞게 판단</option>
-                    <option value="문어체 평서문">문어체 평서문</option>
-                    <option value="쉽고 간결한 설명체">쉽고 간결한 설명체</option>
-                    <option value="학술적·전문적 문체">학술적·전문적 문체</option>
-                    <option value="친근한 블로그 문체">친근한 블로그 문체</option>
-                    <option value="설득력 있는 콘텐츠 문체">설득력 있는 콘텐츠 문체</option>
-                  </select>
+                  <CustomSelectTrigger
+                    label={settings.style}
+                    onClick={() =>
+                      setActiveModal({
+                        title: '문체 선택',
+                        options: STYLE_OPTIONS,
+                        selectedValue: settings.style,
+                        onSelect: (val) => setSettings({ ...settings, style: val }),
+                      })
+                    }
+                  />
                 </div>
 
                 <div className="mb-2">
                   <label className="text-[10.5px] font-bold text-[#475569] block mb-0.5">
                     자료 조사 수준
                   </label>
-                  <select
-                    value={settings.research}
-                    onChange={(e) => setSettings({ ...settings, research: e.target.value })}
-                    className="w-full px-2 h-[28px] border border-[#fdba74] rounded-[6px] text-[11px] bg-gradient-to-b from-white to-[#fffbeb] text-[#1e293b] outline-none shadow-[inset_0_1px_3px_rgba(0,0,0,0.04)]"
-                  >
-                    <option value="작업 목적에 맞게 판단">작업 목적에 맞게 판단</option>
-                    <option value="기초 지식 중심">기초 지식 중심</option>
-                    <option value="근거 확인 및 교차 검증">근거 확인 및 교차 검증</option>
-                    <option value="최신 자료와 학술 연구까지 심층 조사">
-                      최신 자료와 학술 연구까지 심층 조사
-                    </option>
-                    <option value="사용자가 제공한 자료만 활용">사용자가 제공한 자료만 활용</option>
-                  </select>
+                  <CustomSelectTrigger
+                    label={settings.research}
+                    onClick={() =>
+                      setActiveModal({
+                        title: '자료 조사 수준 선택',
+                        options: RESEARCH_OPTIONS,
+                        selectedValue: settings.research,
+                        onSelect: (val) => setSettings({ ...settings, research: val }),
+                      })
+                    }
+                  />
                 </div>
 
                 <div className="mb-2">
                   <label className="text-[10.5px] font-bold text-[#475569] block mb-0.5">
                     출처·인용 방식
                   </label>
-                  <select
-                    value={settings.citation}
-                    onChange={(e) => setSettings({ ...settings, citation: e.target.value })}
-                    className="w-full px-2 h-[28px] border border-[#fdba74] rounded-[6px] text-[11px] bg-gradient-to-b from-white to-[#fffbeb] text-[#1e293b] outline-none shadow-[inset_0_1px_3px_rgba(0,0,0,0.04)]"
-                  >
-                    <option value="필요한 경우 출처 제시">필요한 경우 출처 제시</option>
-                    <option value="핵심 주장마다 근거와 출처 표시">
-                      핵심 주장마다 근거와 출처 표시
-                    </option>
-                    <option value="학술 인용 형식">학술 인용 형식</option>
-                    <option value="본문 내 출처와 참고문헌 구분">본문 내 출처와 참고문헌 구분</option>
-                    <option value="외부 자료 조사 없이 작성">외부 자료 조사 없이 작성</option>
-                  </select>
+                  <CustomSelectTrigger
+                    label={settings.citation}
+                    onClick={() =>
+                      setActiveModal({
+                        title: '출처·인용 방식 선택',
+                        options: CITATION_OPTIONS,
+                        selectedValue: settings.citation,
+                        onSelect: (val) => setSettings({ ...settings, citation: val }),
+                      })
+                    }
+                  />
                 </div>
 
                 <div className="flex flex-col mb-3">
@@ -617,6 +697,18 @@ ${formatSettings.customFormatNotes.trim() ? `- 추가 서식 지침: ${formatSet
           handleRunGpt();
         }}
       />
+
+      {/* Custom Option Select Bottom Sheet Modal (모바일 웜 오렌지 테마) */}
+      {activeModal && (
+        <OptionSelectModal
+          isOpen={true}
+          title={activeModal.title}
+          options={activeModal.options}
+          selectedValue={activeModal.selectedValue}
+          onSelect={activeModal.onSelect}
+          onClose={() => setActiveModal(null)}
+        />
+      )}
     </div>
   );
 }

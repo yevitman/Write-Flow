@@ -18,6 +18,7 @@ export type ParagraphType =
   | 'heading_4'
   | 'heading_5'
   | 'body'
+  | 'scripture_header'
   | 'scripture'
   | 'quote'
   | 'numbered_list'
@@ -30,6 +31,7 @@ export interface FormattedParagraph {
   isOutline?: boolean;
   outlineNumber?: number; // 1, 2, 3...
   customNotes?: string;
+  emphasisPhrases?: string[]; // 단락별 사전분석 강조 단어·어구
 }
 
 export interface DocxExportConfig {
@@ -37,8 +39,9 @@ export interface DocxExportConfig {
   bodyFontSizePt: number; // 10
   lineHeightRatio: number; // 1.35
   alignment: 'both' | 'left' | 'center';
-  scriptureColor: string; // 'E65100'
-  scriptureFontSizePt: number; // 9
+  scriptureColor: string; // 'EA580C'
+  scriptureHeaderFontSizePt: number; // 10 (성경 장 이름: 10pt)
+  scriptureFontSizePt: number; // 9 (성경 본문 구절: 9pt)
   outlineNumberFormat: '1.' | '1)' | '1-';
   outlineSpaceAfterPt: number; // 2
   headingSizes: {
@@ -117,34 +120,91 @@ function parseEmphasisWordsOnly(
     ];
   }
 
-  // Regex escape keywords
-  const regexPattern = new RegExp(
-    `(${validKeywords.map((k) => k.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|')})`,
-    'g'
-  );
+  // Regex escape keywords, sorted longest first for optimal multi-word matching
+  const sortedKeywords = [...validKeywords].sort((a, b) => b.length - a.length);
+  const patternParts = sortedKeywords.map((k) => {
+    const escaped = k.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    if (k.length <= 2) {
+      return `(?:(?<=[\\s"'“‘(\\[{.,]|^)${escaped}(?=[\\s"'”’)\\]!?,.:;~]|$|[은는이가을를의에과와도란]))`;
+    }
+    return escaped;
+  });
+  const regexPattern = new RegExp(`(${patternParts.join('|')})`, 'g');
 
   const tokens = text.split(regexPattern);
+  const seenInParagraph = new Set<string>();
+
   return tokens.flatMap((token) => {
     if (!token) return [];
     const isKeyword = validKeywords.includes(token);
+
+    // 문단 내에서 동일 강조어가 너무 자주 반복되어 어지러워지지 않도록 문단당 1회만 일반 본문과 같은 색의 볼드체 적용
+    if (isKeyword) {
+      if (!seenInParagraph.has(token)) {
+        seenInParagraph.add(token);
+        return [
+          new TextRun({
+            text: token,
+            font,
+            size: sizeHalfPt,
+            bold: true,
+            color: color || '1E293B', // 일반 본문과 동일한 색상(#1E293B)으로 지정하고 볼드체 처리
+          }),
+        ];
+      }
+      // 동일 문단 내 2회차 이후 등장은 일반 텍스트로 자연스럽게 유지
+      return [
+        new TextRun({
+          text: token,
+          font,
+          size: sizeHalfPt,
+          bold: baseBold,
+          color,
+        }),
+      ];
+    }
+
     return [
       new TextRun({
         text: token,
         font,
         size: sizeHalfPt,
-        bold: baseBold || isKeyword,
-        color: isKeyword && !color ? 'C2410C' : color, // Slightly vibrant orange-dark if emphasized
+        bold: baseBold,
+        color,
       }),
     ];
   });
 }
 
+export const DEFAULT_DOCX_CONFIG: DocxExportConfig = {
+  fontFamily: '맑은 고딕',
+  bodyFontSizePt: 10,
+  lineHeightRatio: 1.35,
+  alignment: 'both',
+  scriptureColor: 'EA580C',
+  scriptureHeaderFontSizePt: 10,
+  scriptureFontSizePt: 9,
+  outlineNumberFormat: '1.',
+  outlineSpaceAfterPt: 2,
+  headingSizes: {
+    doc_title: 18,
+    heading_1: 16,
+    heading_2: 14,
+    heading_3: 13,
+    heading_4: 12,
+    heading_5: 11,
+  },
+  emphasisWords: [],
+  autoBoldMarkdown: true,
+};
+
 export async function generateDocxBlob(
   paragraphs: FormattedParagraph[],
-  config: DocxExportConfig
+  config: DocxExportConfig = DEFAULT_DOCX_CONFIG
 ): Promise<Blob> {
+  const cfg: DocxExportConfig = { ...DEFAULT_DOCX_CONFIG, ...(config || {}) };
   const docxParagraphs: Paragraph[] = [];
-  const font = config.fontFamily || '맑은 고딕';
+  const font = cfg.fontFamily || '맑은 고딕';
 
   // Map alignment
   const alignMap = {
@@ -152,13 +212,16 @@ export async function generateDocxBlob(
     left: AlignmentType.LEFT,
     center: AlignmentType.CENTER,
   };
-  const bodyAlignment = alignMap[config.alignment] || AlignmentType.BOTH;
+  const bodyAlignment = alignMap[cfg.alignment] || AlignmentType.BOTH;
 
   // Line height: standard Word single is 240 dxa (lineRule: "auto", line: ratio * 240)
-  const lineSpacingDxa = Math.round((config.lineHeightRatio || 1.35) * 240);
+  const lineSpacingDxa = Math.round((cfg.lineHeightRatio || 1.35) * 240);
 
   paragraphs.forEach((p) => {
-    let rawText = p.originalText.trim();
+    let rawText = p.originalText
+      .trim()
+      .replace(/([0-9]+)\\\./g, '$1.')
+      .replace(/\\([.\-_)\]])/g, '$1');
     if (!rawText) return;
 
     // Handle Outline item (isOutline: true)
@@ -179,7 +242,7 @@ export async function generateDocxBlob(
         ...parseInlineRuns(cleanedOutlineText, {
           font,
           sizeHalfPt: config.bodyFontSizePt * 2,
-          emphasisWords: config.emphasisWords,
+          emphasisWords: [], // 개요 및 제목에는 별도 강조어 미적용 (일반 본문 서식 유지)
           autoBoldMarkdown: config.autoBoldMarkdown,
         }),
       ];
@@ -210,7 +273,7 @@ export async function generateDocxBlob(
           sizeHalfPt: config.headingSizes.doc_title * 2,
           baseBold: true,
           color: 'C2410C',
-          emphasisWords: config.emphasisWords,
+          emphasisWords: [], // 제목에는 강조어구 미적용
           autoBoldMarkdown: config.autoBoldMarkdown,
         });
         docxParagraphs.push(
@@ -229,7 +292,7 @@ export async function generateDocxBlob(
           sizeHalfPt: (config.bodyFontSizePt + 2) * 2,
           baseBold: true,
           color: '475569',
-          emphasisWords: config.emphasisWords,
+          emphasisWords: [], // 부제목에는 강조어구 미적용
           autoBoldMarkdown: config.autoBoldMarkdown,
         });
         docxParagraphs.push(
@@ -248,7 +311,7 @@ export async function generateDocxBlob(
           sizeHalfPt: config.headingSizes.heading_1 * 2,
           baseBold: true,
           color: 'C2410C',
-          emphasisWords: config.emphasisWords,
+          emphasisWords: [], // 대제목에는 강조어구 미적용
           autoBoldMarkdown: config.autoBoldMarkdown,
         });
         docxParagraphs.push(
@@ -268,7 +331,7 @@ export async function generateDocxBlob(
           sizeHalfPt: config.headingSizes.heading_2 * 2,
           baseBold: true,
           color: '334155',
-          emphasisWords: config.emphasisWords,
+          emphasisWords: [], // 중제목에는 강조어구 미적용
           autoBoldMarkdown: config.autoBoldMarkdown,
         });
         docxParagraphs.push(
@@ -288,7 +351,7 @@ export async function generateDocxBlob(
           sizeHalfPt: config.headingSizes.heading_3 * 2,
           baseBold: true,
           color: '475569',
-          emphasisWords: config.emphasisWords,
+          emphasisWords: [], // 소제목에는 강조어구 미적용
           autoBoldMarkdown: config.autoBoldMarkdown,
         });
         docxParagraphs.push(
@@ -309,7 +372,7 @@ export async function generateDocxBlob(
           sizeHalfPt: config.headingSizes.heading_4 * 2,
           baseBold: true,
           color: '475569',
-          emphasisWords: config.emphasisWords,
+          emphasisWords: [], // 하위 제목에는 강조어구 미적용
           autoBoldMarkdown: config.autoBoldMarkdown,
         });
         docxParagraphs.push(
@@ -322,34 +385,65 @@ export async function generateDocxBlob(
         break;
       }
 
-      case 'scripture': {
-        // Scripture Quotation dedicated rule: 9pt, orange #E65100, bold, continuous paragraph
-        const hexColor = config.scriptureColor.replace('#', '') || 'E65100';
+      case 'scripture_header': {
+        // Scripture Chapter/Book Title: 10pt, bold, soft orange, spaceAfter: 0 (빈 줄 없음)
+        const hexColor = config.scriptureColor.replace('#', '') || 'EA580C';
         const runs = parseInlineRuns(rawText, {
           font,
-          sizeHalfPt: (config.scriptureFontSizePt || 9) * 2,
+          sizeHalfPt: (config.scriptureHeaderFontSizePt || 10) * 2,
           baseBold: true,
           color: hexColor,
-          emphasisWords: config.emphasisWords,
+          emphasisWords: [], // 성경 본문 및 성경 장제목에는 강조어구 미적용 (요청사항 반영)
           autoBoldMarkdown: config.autoBoldMarkdown,
         });
         docxParagraphs.push(
           new Paragraph({
             children: runs,
             alignment: bodyAlignment,
-            spacing: { before: 30, after: 40, line: lineSpacingDxa },
-            indent: { left: convertMillimetersToTwip(4), right: convertMillimetersToTwip(4) },
+            spacing: { before: 100, after: 0, line: lineSpacingDxa },
+            indent: {
+              left: convertMillimetersToTwip(5),
+              right: convertMillimetersToTwip(5),
+            },
+          })
+        );
+        break;
+      }
+
+      case 'scripture': {
+        // Scripture Verse Text: 9pt, bold, soft orange, spaceBefore: 0 (장 이름과 빈 줄 없이 밀착)
+        const hexColor = config.scriptureColor.replace('#', '') || 'EA580C';
+        const runs = parseInlineRuns(rawText, {
+          font,
+          sizeHalfPt: (config.scriptureFontSizePt || 9) * 2,
+          baseBold: true,
+          color: hexColor,
+          emphasisWords: [], // 성경 본문 구절에는 강조어구 미적용 (요청사항 반영)
+          autoBoldMarkdown: config.autoBoldMarkdown,
+        });
+        docxParagraphs.push(
+          new Paragraph({
+            children: runs,
+            alignment: bodyAlignment,
+            spacing: { before: 0, after: 120, line: lineSpacingDxa },
+            indent: {
+              left: convertMillimetersToTwip(5),
+              right: convertMillimetersToTwip(5),
+            },
           })
         );
         break;
       }
 
       case 'quote': {
+        const paragraphEmphasis = (p.emphasisPhrases && p.emphasisPhrases.length > 0)
+          ? p.emphasisPhrases
+          : config.emphasisWords;
         const runs = parseInlineRuns(rawText, {
           font,
           sizeHalfPt: (config.bodyFontSizePt - 0.5) * 2,
           color: '475569',
-          emphasisWords: config.emphasisWords,
+          emphasisWords: paragraphEmphasis,
           autoBoldMarkdown: config.autoBoldMarkdown,
         });
         docxParagraphs.push(
@@ -365,11 +459,14 @@ export async function generateDocxBlob(
 
       case 'body':
       default: {
+        const paragraphEmphasis = (p.emphasisPhrases && p.emphasisPhrases.length > 0)
+          ? p.emphasisPhrases
+          : config.emphasisWords;
         const runs = parseInlineRuns(rawText, {
           font,
           sizeHalfPt: config.bodyFontSizePt * 2,
           color: '1E293B',
-          emphasisWords: config.emphasisWords,
+          emphasisWords: paragraphEmphasis,
           autoBoldMarkdown: config.autoBoldMarkdown,
         });
         docxParagraphs.push(
