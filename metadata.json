@@ -1,0 +1,6 @@
+{
+  "name": "Writing Helper",
+  "description": "AI 기반 통합 집필 및 전문 프롬프트 작성 도구 PWA",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
