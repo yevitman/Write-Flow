@@ -46,9 +46,16 @@ const VERSE_LINE_REGEX = /^([0-9]{1,3})[\s\.\)\]절:]\s*/;
 // Indicators of explanatory commentary that should NOT be scripture
 const COMMENTARY_START_WORDS = [
   '여기서', '특히', '따라서', '이처럼', '이는', '우리는', '이 구절은',
-  '이 말씀은', '즉', '결론적으로', '첫째로', '둘째로', '그러나', '반면에',
-  '한편', '결국', '주목할 것은', '사도 바울은', '저자는'
+  '이 말씀은', '이 부분에서', '본문에서', '본 구절은', '즉', '결론적으로',
+  '첫째로', '둘째로', '그러나', '반면에', '한편', '결국', '주목할 것은',
+  '사도 바울은', '바울은', '저자는', '예수님은', '성경은', '사도는',
+  '필자는', '이 단락은', '이 장은'
 ];
+
+// Narrative explanatory endings (commentary verbs that never appear at end of Bible verse)
+const COMMENTARY_ENDING_REGEX =
+  /(설명한다|밝힌다|보여준다|의미한다|가리킨다|말한다|것이다|대조한다|주장한다|강조한다|선언한다|가르친다|권면한다|경고한다|나타낸다|증거한다)[\.\s]*$/;
+
 
 function isOutlineHeader(line: string): boolean {
   const clean = line
@@ -100,10 +107,43 @@ export function parseManuscriptToParagraphs(text: string): FormattedParagraph[] 
 
   const result: FormattedParagraph[] = [];
 
+  // Identify the position of the first major heading (e.g. "I. 전체 내용", "## 전체 내용", "II. 개요" etc.)
+  const firstMajorHeadingIndex = rawLines.findIndex(
+    (l) => /^[I|V|X]+\.\s*/i.test(l) || /^#{1,3}\s+/.test(l) || isOutlineHeader(l)
+  );
+
   rawLines.forEach((line, index) => {
     const id = `p-${Date.now()}-${index + 1}`;
 
-    // 1. Check Document Title (e.g. line starts with # or prominent title)
+    // 1. Check Document Title & Subtitle before the first major section
+    if (firstMajorHeadingIndex > 0 && index < firstMajorHeadingIndex) {
+      if (index === 0) {
+        // First line at top of manuscript is Document Title (18pt)
+        result.push({
+          id,
+          originalText: line.replace(/^#\s*/, '').trim(),
+          type: 'doc_title',
+        });
+        inOutlineSection = false;
+        inScriptureBlock = false;
+        activeVerseParagraphId = null;
+        return;
+      }
+      if (index === 1) {
+        // Second line at top of manuscript before first section is Document Subtitle (14pt)
+        result.push({
+          id,
+          originalText: line.replace(/^#{1,3}\s*/, '').trim(),
+          type: 'doc_subtitle',
+        });
+        inOutlineSection = false;
+        inScriptureBlock = false;
+        activeVerseParagraphId = null;
+        return;
+      }
+    }
+
+    // Explicit Document Title with markdown '# '
     if (line.startsWith('# ') && !isOutlineHeader(line)) {
       result.push({
         id,
@@ -224,14 +264,23 @@ export function parseManuscriptToParagraphs(text: string): FormattedParagraph[] 
     // (C) If inside Scripture block and this line is part of the scripture passage:
     // Continuous verses must be merged into ONE single paragraph without line breaks!
     if (inScriptureBlock) {
-      const isVerse =
-        VERSE_LINE_REGEX.test(line) ||
-        (!activeVerseParagraphId &&
-          !COMMENTARY_START_WORDS.some((word) => line.startsWith(word)) &&
-          line.length < 300);
-      const isCommentary = COMMENTARY_START_WORDS.some((word) => line.startsWith(word));
+      const startsWithVerseNumber = VERSE_LINE_REGEX.test(line);
+      const startsWithQuote = /^[“"「]/.test(line);
+      const hasCommentaryStart = COMMENTARY_START_WORDS.some((word) => line.startsWith(word));
+      const hasCommentaryEnding = COMMENTARY_ENDING_REGEX.test(line);
 
-      if (isVerse && !isCommentary) {
+      // It is commentary if:
+      // 1) It starts with commentary indicator ("이 부분에서", "여기서", "사도 바울은" 등)
+      // 2) OR it does NOT start with a verse number and ends with a commentary verb ("~설명한다.", "~밝힌다." 등)
+      const isCommentary =
+        hasCommentaryStart ||
+        (!startsWithVerseNumber && hasCommentaryEnding);
+
+      // Real scripture verse lines MUST either start with a verse number (e.g. "2 ", "5. ", "1절 ")
+      // or start with a scripture quotation mark, and must NOT be commentary.
+      const isVerse = (startsWithVerseNumber || startsWithQuote) && !isCommentary;
+
+      if (isVerse) {
         // If an active verse paragraph already exists in this block, merge continuously!
         if (activeVerseParagraphId) {
           const activeP = result.find((p) => p.id === activeVerseParagraphId);
@@ -365,8 +414,15 @@ export function alignToWordBoundary(fullText: string, phrase: string): string {
   return fullText.slice(start, end).trim();
 }
 
+const FORBIDDEN_EMPHASIS_WORDS = new Set([
+  '하', '않', '있', '없', '되', '보', '한', '된', '이', '가', '은', '는', '을', '를',
+  '의', '에', '와', '과', '도', '로', '고', '며', '서', '라', '즉', '또', '이것', '저것',
+  '그것', '사람', '인간', '경우', '때문', '사실', '대한', '위해'
+]);
+
 /**
  * 단일 문단 텍스트를 사전 분석하여 핵심 어구(어구/문장/명제) 및 정의 단어 추출
+ * - 단일 글자(1글자: 하, 않, 있 등) 추출 절대 금지 (최소 2글자 이상 어구/단어만 허용)
  * - 어절(단어) 중간 절단 절대 금지: 항상 완전한 단어로 시작하고 끝남
  * - 사용자 지침: 단어의 뜻을 설명할 때만 정의 단어 지정, 문맥 속 핵심 내용인 명제/어구 볼드 처리
  */
@@ -383,7 +439,12 @@ export function extractParagraphEmphasis(text: string, recentUsedWords: string[]
   const addTarget = (phrase: string) => {
     if (!phrase) return;
     const clean = alignToWordBoundary(p, phrase.trim());
-    if (clean.length >= 2 && !targets.includes(clean) && !isRecent(clean)) {
+    if (
+      clean.length >= 2 &&
+      !FORBIDDEN_EMPHASIS_WORDS.has(clean) &&
+      !targets.includes(clean) &&
+      !isRecent(clean)
+    ) {
       targets.push(clean);
     }
   };
@@ -398,20 +459,26 @@ export function extractParagraphEmphasis(text: string, recentUsedWords: string[]
   }
 
   // 2. [강조단어] 어떤 단어의 뜻이나 개념을 설명하거나 정의하는 경우의 단어 (사용자 지침: 단어 뜻 설명할 때만 적용)
-  // 예: '태초'라는 표현은, "정죄함이 없다"는 것은, '화목제물'이란, 여기서 '선'은 ...를 뜻한다
+  // 규칙: 반드시 2글자 이상의 명사/개념어만 허용 (하는, 있는, 않은 등 동사 어간 오인 추출 원천 차단)
   const definitionPatterns = [
-    /['"“‘]([가-힣a-zA-Z0-9\s]{1,12})['"”’]\s*(?:라는|이란|란|의\s*의미|을\s*뜻|를\s*뜻|표현은)/,
-    /(?:여기서\s+|이\s+)?['"“‘]?([가-힣]{1,8})['"”’]?(?:은|는|이란|란)\s+[^\n]{2,35}?(?:뜻한다|의미한다|가리킨다|말한다|것이\s*아니라)/,
-    /([가-힣]{2,8})(?:이란|란)\s+[^\n]{2,30}?(?:뜻한다|의미한다|가리킨다|말한다)/,
-    /([가-힣\s]{2,12})(?:이라는|라는)\s*(?:표현|말|단어|개념)은/,
-    /([가-힣\s]{2,12})(?:이|가)\s*없다는\s*것은/,
+    /['"“‘]([가-힣a-zA-Z0-9\s]{2,12})['"”’]\s*(?:라는|이란|란|의\s*의미|을\s*뜻|를\s*뜻|표현은)/,
+    /(?:^|\s)([가-힣]{2,8})(?:이란|란)\s+[^\n]{2,30}?(?:뜻한다|의미한다|가리킨다|말한다)/,
+    /(?:여기서\s+)([가-힣]{2,8})(?:은|는)\s+[^\n]{2,30}?(?:뜻한다|의미한다|가리킨다|말한다)/,
+    /(?:^|\s)([가-힣\s]{2,12})(?:이라는|라는)\s*(?:표현|말|단어|개념)은/,
+    /(?:^|\s)([가-힣\s]{2,12})(?:이|가)\s*없다는\s*것은/,
   ];
 
   for (const reg of definitionPatterns) {
     const match = p.match(reg);
     if (match && match[1]) {
       const term = match[1].trim();
-      if (term.length >= 1 && term.length <= 12 && !targets.includes(term) && !isRecent(term)) {
+      if (
+        term.length >= 2 &&
+        term.length <= 12 &&
+        !FORBIDDEN_EMPHASIS_WORDS.has(term) &&
+        !targets.includes(term) &&
+        !isRecent(term)
+      ) {
         targets.push(term);
         break;
       }

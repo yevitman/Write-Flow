@@ -289,7 +289,7 @@ export async function generateDocxBlob(
       case 'doc_subtitle': {
         const runs = parseInlineRuns(rawText, {
           font,
-          sizeHalfPt: (config.bodyFontSizePt + 2) * 2,
+          sizeHalfPt: config.headingSizes.heading_2 * 2, // 부제목 14pt
           baseBold: true,
           color: '475569',
           emphasisWords: [], // 부제목에는 강조어구 미적용

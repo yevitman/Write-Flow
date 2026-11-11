@@ -126,7 +126,7 @@ const DEFAULT_FORMAT_SETTINGS: FormatSettingsState = {
   alignment: '양쪽 정렬',
   headingHierarchy: '문서 제목 18pt | 제목 1: 16pt | 제목 2: 14pt | 제목 3: 13pt | 하위 제목: 12pt',
   numberingStyle: 'I. II. III. → 1. 2. 3. → 1) 2) 3) (번호 뒤에 백슬래시 \\를 붙이지 말 것)',
-  scriptureCitationRule: '성경 장 이름 10pt, 본문 9pt, 은은한 주황색 (#EA580C), 굵게 (Bold), 장 이름 뒤 빈 줄 없이 연속 문단으로 작성. 본문 연구 시 구절을 해설할 때는 반드시 해당 성경 구절 본문 전체를 먼저 인용 표기한 후 해설할 것',
+  scriptureCitationRule: '성경 장 이름 10pt 주황색 굵게 표기 후 빈 줄 없이 실제 성경 본문 구절(9pt 주황색 굵게) 표기. 연속된 절은 절마다 줄바꿈 없이 한 단락으로 이어 쓰며 절 번호 필수 기재. 본문 해설 중 특정 절 언급 시에도 반드시 실제 성경 원문 표기 의무화 (본문 생략 및 요약문 대체 엄격 금지)',
   customFormatNotes: '',
 };
 
@@ -140,10 +140,10 @@ function CustomSelectTrigger({ label, onClick }: CustomSelectTriggerProps) {
     <button
       type="button"
       onClick={onClick}
-      className="w-full px-2 h-[28px] border border-[#fdba74] rounded-[6px] text-[11px] bg-gradient-to-b from-white to-[#fffbeb] text-[#1e293b] outline-none shadow-[inset_0_1px_3px_rgba(0,0,0,0.04)] cursor-pointer flex items-center justify-between text-left hover:border-orange-400 active:bg-orange-50/50 transition group"
+      className="w-full py-2 sm:py-2.5 px-2.5 cursor-pointer rounded-[8px] text-[12px] font-bold whitespace-nowrap overflow-hidden text-ellipsis transition-all bg-gradient-to-br from-white to-[#ffedd5] text-[#c2410c] border border-[#fdba74] shadow-[0_2px_5px_rgba(249,115,22,0.1)] hover:border-orange-400 active:bg-orange-50/50 flex items-center justify-between text-left group"
     >
-      <span className="truncate pr-1 font-medium">{label}</span>
-      <ChevronDown className="w-3.5 h-3.5 text-orange-400 group-hover:text-orange-600 flex-shrink-0 transition-colors" />
+      <span className="truncate pr-1 font-bold">{label}</span>
+      <ChevronDown className="w-3.5 h-3.5 text-[#ea580c] group-hover:text-[#c2410c] flex-shrink-0 transition-colors" />
     </button>
   );
 }
@@ -158,7 +158,8 @@ export default function App() {
   const [work, setWork] = useState('자동 판별');
   const [audience, setAudience] = useState('주제에 맞게 판단');
   const [length, setLength] = useState('주제에 맞게 판단');
-  const [selectedFormats, setSelectedFormats] = useState<string[]>(['완성 원고']);
+  const [selectedFormat, setSelectedFormat] = useState<string>('완성 원고');
+  const [showFixedModal, setShowFixedModal] = useState(false);
 
   // Custom Select Modal State (사진 1의 안드로이드 기본 select 팝업 대체)
   const [activeModal, setActiveModal] = useState<{
@@ -239,16 +240,9 @@ export default function App() {
     }, 2500);
   };
 
-  // Toggle format chips
-  const toggleFormat = (formatName: string) => {
-    setSelectedFormats((prev) => {
-      if (prev.includes(formatName)) {
-        if (prev.length === 1) return prev; // Keep at least one
-        return prev.filter((f) => f !== formatName);
-      } else {
-        return [...prev, formatName];
-      }
-    });
+  // Select format (단일 선택)
+  const handleSelectFormat = (formatName: string) => {
+    setSelectedFormat(formatName);
   };
 
   // Compile final prompt
@@ -256,16 +250,14 @@ export default function App() {
     const trimmedTopic = topic.trim();
     if (!trimmedTopic) return null;
 
-    const formatsStr = selectedFormats.join(', ') || '완성 원고';
+    const formatsStr = selectedFormat || '완성 원고';
 
     return `${basePrompt.trim()}
 
 # 이번 작업의 구체적 요청
 [주제·질문·작성할 내용]
 ${trimmedTopic}
-
-[추가 요구사항]
-${request.trim() || '별도 요구사항 없음'}
+${request.trim() ? `\n[추가 요구사항]\n${request.trim()}\n` : ''}
 
 [전문 분야]
 ${domain}
@@ -349,7 +341,7 @@ ${formatSettings.customFormatNotes.trim() ? `- 추가 서식 지침: ${formatSet
       onConfirm: () => {
         setTopic('');
         setRequest('');
-        setSelectedFormats(['완성 원고']);
+        setSelectedFormat('완성 원고');
         setConfirmModal((prev) => ({ ...prev, isOpen: false }));
         showToast('입력 내용이 초기화되었습니다.');
       },
@@ -370,27 +362,27 @@ ${formatSettings.customFormatNotes.trim() ? `- 추가 서식 지침: ${formatSet
     <div className="w-full min-h-[100vh] min-h-[100dvh] flex flex-col justify-start overflow-y-auto bg-gradient-to-br from-[#fef3c7] via-[#fed7aa] via-65%-[#ffedd5] to-[#ffc4a3] text-[#1e293b]">
       {/* Container restricted to max 800px */}
       <main className="w-full max-w-[800px] mx-auto p-1 sm:p-2 flex flex-col justify-start">
-        {/* 상단 모달/헤더 영역 */}
-        <header className="relative px-3 pt-3.5 pb-2.5 text-center bg-gradient-to-br from-[#f97316] via-[#ea580c] to-[#c2410c] rounded-t-[14px] text-white shadow-[0_6px_16px_rgba(234,88,12,0.45)] flex-shrink-0 border-b-[3px] border-[#7c2d12]">
+        {/* 상단 모달/헤더 영역: 모바일 뷰포트 밀림 방지를 위한 정밀 다이어트 */}
+        <header className="relative px-3 pt-2.5 pb-2 text-center bg-gradient-to-br from-[#f97316] via-[#ea580c] to-[#c2410c] rounded-t-[14px] text-white shadow-[0_6px_16px_rgba(234,88,12,0.45)] flex-shrink-0 border-b-[3px] border-[#7c2d12]">
           {/* 우측 상단 설치 버튼 */}
-          <div className="absolute right-2.5 top-2.5 flex items-center z-10">
+          <div className="absolute right-2.5 top-2 flex items-center z-10">
             <PWAInstallButton compact />
           </div>
 
           {/* 중앙 정렬된 타이틀 */}
-          <div className="flex items-center justify-center mb-2.5 pt-0.5">
-            <h1 className="text-2xl sm:text-[28px] font-black tracking-tight drop-shadow-[0_2px_4px_rgba(0,0,0,0.35)] leading-tight text-white">
+          <div className="flex items-center justify-center mb-1.5 pt-0.5">
+            <h1 className="text-[22px] sm:text-[26px] font-black tracking-tight drop-shadow-[0_2px_4px_rgba(0,0,0,0.35)] leading-tight text-white">
               Writing Helper
             </h1>
           </div>
 
-          {/* 3개의 탭 영역: 기본 프롬프트 탭 제거 및 서식 지정 탭 추가 */}
-          <nav className="flex gap-1 flex-shrink-0" role="tablist">
+          {/* 2개의 탭 영역: 글쓰기, 서식 지정 (작성 세부 설정은 글쓰기 창 내부로 통합) */}
+          <nav className="flex gap-1.5 flex-shrink-0" role="tablist">
             <button
               role="tab"
               aria-selected={activeTab === 'write'}
               onClick={() => setActiveTab('write')}
-              className={`flex-1 text-center py-1.5 text-xs font-bold rounded-[7px] transition-all cursor-pointer shadow-xs ${
+              className={`flex-1 text-center py-2 text-xs font-bold rounded-[8px] transition-all cursor-pointer shadow-xs ${
                 activeTab === 'write'
                   ? 'bg-gradient-to-br from-white to-[#ffedd5] text-[#9a3412] border border-white shadow-[0_2px_6px_rgba(234,88,12,0.25)] font-extrabold'
                   : 'bg-gradient-to-b from-white to-[#fff7ed] text-[#c2410c] border border-[rgba(251,146,60,0.6)] hover:bg-orange-50'
@@ -400,21 +392,9 @@ ${formatSettings.customFormatNotes.trim() ? `- 추가 서식 지침: ${formatSet
             </button>
             <button
               role="tab"
-              aria-selected={activeTab === 'settings'}
-              onClick={() => setActiveTab('settings')}
-              className={`flex-1 text-center py-1.5 text-xs font-bold rounded-[7px] transition-all cursor-pointer shadow-xs ${
-                activeTab === 'settings'
-                  ? 'bg-gradient-to-br from-white to-[#ffedd5] text-[#9a3412] border border-white shadow-[0_2px_6px_rgba(234,88,12,0.25)] font-extrabold'
-                  : 'bg-gradient-to-b from-white to-[#fff7ed] text-[#c2410c] border border-[rgba(251,146,60,0.6)] hover:bg-orange-50'
-              }`}
-            >
-              작성 세부 설정
-            </button>
-            <button
-              role="tab"
               aria-selected={activeTab === 'format'}
               onClick={() => setActiveTab('format')}
-              className={`flex-1 text-center py-1.5 text-xs font-bold rounded-[7px] transition-all cursor-pointer shadow-xs ${
+              className={`flex-1 text-center py-2 text-xs font-bold rounded-[8px] transition-all cursor-pointer shadow-xs ${
                 activeTab === 'format'
                   ? 'bg-gradient-to-br from-white to-[#ffedd5] text-[#9a3412] border border-white shadow-[0_2px_6px_rgba(234,88,12,0.25)] font-extrabold'
                   : 'bg-gradient-to-b from-white to-[#fff7ed] text-[#c2410c] border border-[rgba(251,146,60,0.6)] hover:bg-orange-50'
@@ -432,7 +412,7 @@ ${formatSettings.customFormatNotes.trim() ? `- 추가 서식 지침: ${formatSet
           <section className="flex flex-col flex-1">
             <div className="bg-gradient-to-br from-[rgba(255,255,255,0.98)] to-[rgba(255,243,224,0.95)] border border-[rgba(249,115,22,0.6)] border-t-0 rounded-b-[14px] p-2 sm:p-2.5 flex flex-col justify-start shadow-[0_4px_15px_rgba(249,115,22,0.15)]">
               {/* 상단 액션 바 */}
-              <div className="flex justify-between items-center mb-1.5 flex-shrink-0">
+              <div className="flex justify-between items-center mb-1 flex-shrink-0">
                 <span className="text-[13px] font-extrabold text-[#c2410c] drop-shadow-[0_1px_2px_rgba(255,255,255,0.9)]">
                   작성 내용 입력
                 </span>
@@ -457,29 +437,19 @@ ${formatSettings.customFormatNotes.trim() ? `- 추가 서식 지침: ${formatSet
                 </div>
               </div>
 
-              {/* 주제 입력 */}
+              {/* 작성 내용 입력: 추가 요구사항 창 통합 확장하여 시원하고 넉넉한 높이 확보 */}
               <div className="mb-1.5 flex-shrink-0">
                 <textarea
                   ref={topicInputRef}
                   value={topic}
                   onChange={(e) => setTopic(e.target.value)}
                   placeholder="주제·질문·작성할 내용을 입력한다."
-                  className="w-full px-2 py-1.5 border border-[#fdba74] rounded-[6px] text-[11.5px] bg-gradient-to-b from-white to-[#fffbeb] text-[#1e293b] outline-none shadow-[inset_0_1px_3px_rgba(0,0,0,0.04)] resize-none h-[42px] sm:h-[48px] min-h-[38px] leading-snug focus:border-orange-500 focus:ring-1 focus:ring-orange-300 transition"
+                  className="w-full px-2.5 py-2 border border-[#fdba74] rounded-[8px] text-[12px] bg-gradient-to-b from-white to-[#fffbeb] text-[#1e293b] outline-none shadow-[inset_0_1px_3px_rgba(0,0,0,0.04)] resize-none h-[114px] sm:h-[124px] min-h-[96px] leading-relaxed focus:border-orange-500 focus:ring-1 focus:ring-orange-300 transition"
                 />
               </div>
 
-              {/* 추가 요구사항 입력 */}
-              <div className="mb-1.5 flex-shrink-0">
-                <textarea
-                  value={request}
-                  onChange={(e) => setRequest(e.target.value)}
-                  placeholder="추가 요구사항 (특별히 반영할 내용이나 조건)"
-                  className="w-full px-2 py-1.5 border border-[#fdba74] rounded-[6px] text-[11.5px] bg-gradient-to-b from-white to-[#fffbeb] text-[#1e293b] outline-none shadow-[inset_0_1px_3px_rgba(0,0,0,0.04)] resize-none h-[40px] sm:h-[44px] min-h-[36px] leading-snug focus:border-orange-500 focus:ring-1 focus:ring-orange-300 transition"
-                />
-              </div>
-
-              {/* 4단 선택 옵션 그리드 (사진 2와 완벽히 일치하는 콤팩트한 웜 오렌지 커스텀 트리거) */}
-              <div className="grid grid-cols-2 gap-1.5 mb-2 flex-shrink-0">
+              {/* 8단 작성 옵션 & 세부 설정 그리드 (결과물 형식 버튼과 동일한 크기와 디자인으로 글쓰기 창 내부 완전 통합) */}
+              <div className="grid grid-cols-2 gap-1 sm:gap-1.5 mb-1.5 flex-shrink-0">
                 <CustomSelectTrigger
                   label={`전문 분야: ${domain}`}
                   onClick={() =>
@@ -527,21 +497,80 @@ ${formatSettings.customFormatNotes.trim() ? `- 추가 서식 지침: ${formatSet
                     })
                   }
                 />
+
+                <CustomSelectTrigger
+                  label={`문체: ${settings.style}`}
+                  onClick={() =>
+                    setActiveModal({
+                      title: '문체 선택',
+                      options: STYLE_OPTIONS,
+                      selectedValue: settings.style,
+                      onSelect: (val) => {
+                        const next = { ...settings, style: val };
+                        setSettings(next);
+                        try {
+                          localStorage.setItem(STORAGE_KEY_SETTINGS, JSON.stringify(next));
+                        } catch {}
+                      },
+                    })
+                  }
+                />
+
+                <CustomSelectTrigger
+                  label={`자료 조사: ${settings.research}`}
+                  onClick={() =>
+                    setActiveModal({
+                      title: '자료 조사 수준 선택',
+                      options: RESEARCH_OPTIONS,
+                      selectedValue: settings.research,
+                      onSelect: (val) => {
+                        const next = { ...settings, research: val };
+                        setSettings(next);
+                        try {
+                          localStorage.setItem(STORAGE_KEY_SETTINGS, JSON.stringify(next));
+                        } catch {}
+                      },
+                    })
+                  }
+                />
+
+                <CustomSelectTrigger
+                  label={`출처 방식: ${settings.citation}`}
+                  onClick={() =>
+                    setActiveModal({
+                      title: '출처·인용 방식 선택',
+                      options: CITATION_OPTIONS,
+                      selectedValue: settings.citation,
+                      onSelect: (val) => {
+                        const next = { ...settings, citation: val };
+                        setSettings(next);
+                        try {
+                          localStorage.setItem(STORAGE_KEY_SETTINGS, JSON.stringify(next));
+                        } catch {}
+                      },
+                    })
+                  }
+                />
+
+                <CustomSelectTrigger
+                  label={settings.fixed.trim() ? `고정 지침: ${settings.fixed.trim().slice(0, 7)}...` : '추가 고정 지침: 없음'}
+                  onClick={() => setShowFixedModal(true)}
+                />
               </div>
 
-              {/* 결과물 형식 영역: 4개 선택창 바로 아래로 당겨 올림 */}
-              <div className="pt-2 border-t-2 border-[#f97316] flex-shrink-0">
-                <div className="text-[13px] font-extrabold text-[#c2410c] drop-shadow-[0_1px_2px_rgba(255,255,255,0.9)] mb-1.5">
-                  결과물 형식 (복수 선택 가능)
+              {/* 결과물 형식 영역: 단일 선택 및 명칭 변경 */}
+              <div className="pt-1.5 border-t-2 border-[#f97316] flex-shrink-0">
+                <div className="text-[12.5px] font-extrabold text-[#c2410c] drop-shadow-[0_1px_2px_rgba(255,255,255,0.9)] mb-1">
+                  결과물 형식
                 </div>
-                <div className="grid grid-cols-2 gap-1.5">
+                <div className="grid grid-cols-2 gap-1 sm:gap-1.5">
                   {AVAILABLE_FORMATS.map((fmt) => {
-                    const isActive = selectedFormats.includes(fmt);
+                    const isActive = selectedFormat === fmt;
                     return (
                       <button
                         key={fmt}
                         type="button"
-                        onClick={() => toggleFormat(fmt)}
+                        onClick={() => handleSelectFormat(fmt)}
                         className={`w-full text-center py-2 sm:py-2.5 px-1 cursor-pointer rounded-[8px] text-[12px] font-bold whitespace-nowrap overflow-hidden text-ellipsis transition-all ${
                           isActive
                             ? 'bg-gradient-to-br from-[#f97316] via-[#ea580c] to-[#c2410c] text-white border border-[#9a3412] shadow-[0_3px_8px_rgba(234,88,12,0.4)]'
@@ -569,100 +598,12 @@ ${formatSettings.customFormatNotes.trim() ? `- 추가 서식 지침: ${formatSet
         )}
 
         {/* ========================================================
-            패널 2: 작성 세부 설정 패널
-           ======================================================== */}
-        {activeTab === 'settings' && (
-          <section className="flex flex-col flex-1">
-            <div className="bg-gradient-to-br from-[rgba(255,255,255,0.98)] to-[rgba(255,243,224,0.95)] border border-[rgba(249,115,22,0.6)] border-t-0 rounded-b-[14px] p-2.5 sm:p-3 flex flex-col justify-start shadow-[0_4px_15px_rgba(249,115,22,0.15)]">
-              <div className="flex flex-col">
-                <h2 className="text-xs font-extrabold text-[#c2410c] mb-1.5 flex items-center gap-1.5">
-                  작성 세부 설정
-                </h2>
-
-                <div className="mb-2">
-                  <label className="text-[10.5px] font-bold text-[#475569] block mb-0.5">
-                    문체
-                  </label>
-                  <CustomSelectTrigger
-                    label={settings.style}
-                    onClick={() =>
-                      setActiveModal({
-                        title: '문체 선택',
-                        options: STYLE_OPTIONS,
-                        selectedValue: settings.style,
-                        onSelect: (val) => setSettings({ ...settings, style: val }),
-                      })
-                    }
-                  />
-                </div>
-
-                <div className="mb-2">
-                  <label className="text-[10.5px] font-bold text-[#475569] block mb-0.5">
-                    자료 조사 수준
-                  </label>
-                  <CustomSelectTrigger
-                    label={settings.research}
-                    onClick={() =>
-                      setActiveModal({
-                        title: '자료 조사 수준 선택',
-                        options: RESEARCH_OPTIONS,
-                        selectedValue: settings.research,
-                        onSelect: (val) => setSettings({ ...settings, research: val }),
-                      })
-                    }
-                  />
-                </div>
-
-                <div className="mb-2">
-                  <label className="text-[10.5px] font-bold text-[#475569] block mb-0.5">
-                    출처·인용 방식
-                  </label>
-                  <CustomSelectTrigger
-                    label={settings.citation}
-                    onClick={() =>
-                      setActiveModal({
-                        title: '출처·인용 방식 선택',
-                        options: CITATION_OPTIONS,
-                        selectedValue: settings.citation,
-                        onSelect: (val) => setSettings({ ...settings, citation: val }),
-                      })
-                    }
-                  />
-                </div>
-
-                <div className="flex flex-col mb-3">
-                  <label className="text-[10.5px] font-bold text-[#475569] block mb-0.5">
-                    추가 고정 지침
-                  </label>
-                  <textarea
-                    value={settings.fixed}
-                    onChange={(e) => setSettings({ ...settings, fixed: e.target.value })}
-                    placeholder="모든 작업에 공통으로 적용할 지침을 입력한다."
-                    className="w-full h-[80px] p-2 border border-[#fdba74] rounded-[6px] text-[11px] bg-gradient-to-b from-white to-[#fffbeb] text-[#1e293b] outline-none shadow-[inset_0_1px_3px_rgba(0,0,0,0.04)] resize-none"
-                  />
-                </div>
-              </div>
-
-              <button
-                type="button"
-                onClick={handleSaveSettings}
-                className="w-full py-2.5 rounded-[8px] bg-gradient-to-br from-[#34d399] via-[#10b981] to-[#059669] text-white font-extrabold text-xs shadow-[0_3px_8px_rgba(16,185,129,0.4)] hover:brightness-105 transition cursor-pointer flex items-center justify-center gap-1.5"
-              >
-                <Check className="w-4 h-4" />
-                <span>작성 설정 저장</span>
-              </button>
-            </div>
-          </section>
-        )}
-
-        {/* ========================================================
             패널 3: 서식 지정 패널 (원고 내용 분석, 개요/성경/강조볼드 서식 적용 및 DOCX 다운로드)
            ======================================================== */}
         {activeTab === 'format' && (
           <section className="flex flex-col flex-1">
             <div className="bg-gradient-to-br from-[rgba(255,255,255,0.98)] to-[rgba(255,243,224,0.95)] border border-[rgba(249,115,22,0.6)] border-t-0 rounded-b-[14px] p-2 sm:p-2.5 flex flex-col justify-start shadow-[0_4px_15px_rgba(249,115,22,0.15)]">
               <FormatConversionPanel
-                initialText={[topic.trim(), request.trim()].filter(Boolean).join('\n\n')}
                 onShowToast={showToast}
               />
             </div>
@@ -708,6 +649,82 @@ ${formatSettings.customFormatNotes.trim() ? `- 추가 서식 지침: ${formatSet
           onSelect={activeModal.onSelect}
           onClose={() => setActiveModal(null)}
         />
+      )}
+
+      {/* 추가 고정 지침 편집 모달 (웜 오렌지 테마) */}
+      {showFixedModal && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 backdrop-blur-[2px] p-4 animate-in fade-in duration-150"
+          onClick={() => setShowFixedModal(false)}
+        >
+          <div
+            className="w-full max-w-md bg-gradient-to-b from-[#fffbf5] to-[#fff7ed] rounded-2xl border border-[rgba(249,115,22,0.4)] shadow-[0_-4px_25px_rgba(249,115,22,0.2),0_10px_30px_rgba(0,0,0,0.2)] overflow-hidden flex flex-col animate-in zoom-in-95 duration-150"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between px-3.5 py-2.5 bg-gradient-to-r from-[#ea580c] via-[#f97316] to-[#fb923c] text-white">
+              <div className="flex items-center gap-1.5">
+                <span className="w-1.5 h-3.5 bg-white/80 rounded-full inline-block" />
+                <h3 className="text-[13px] font-black tracking-wide">추가 고정 지침 설정</h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowFixedModal(false)}
+                className="w-6 h-6 flex items-center justify-center rounded-full hover:bg-white/20 text-white cursor-pointer"
+                title="닫기"
+              >
+                ✕
+              </button>
+            </div>
+            <div className="p-3">
+              <p className="text-[11px] text-slate-600 mb-1.5 font-medium leading-relaxed">
+                모든 글쓰기 작업 프롬프트에 기본으로 적용될 공통 고정 지침을 입력합니다.
+              </p>
+              <textarea
+                value={settings.fixed}
+                onChange={(e) => {
+                  const next = { ...settings, fixed: e.target.value };
+                  setSettings(next);
+                  try {
+                    localStorage.setItem(STORAGE_KEY_SETTINGS, JSON.stringify(next));
+                  } catch {}
+                }}
+                placeholder="예: 객관적 사실을 근거로 서술할 것, 특정 신학적 관점을 견지할 것 등"
+                className="w-full h-28 p-2.5 border border-[#fdba74] rounded-lg text-xs bg-white text-slate-800 outline-none resize-none focus:ring-1 focus:ring-orange-400 shadow-inner"
+              />
+              <div className="flex justify-end gap-2 mt-2.5">
+                <button
+                  type="button"
+                  onClick={() => {
+                    const next = { ...settings, fixed: '' };
+                    setSettings(next);
+                    try {
+                      localStorage.setItem(STORAGE_KEY_SETTINGS, JSON.stringify(next));
+                    } catch {}
+                    showToast('고정 지침이 초기화되었습니다.');
+                  }}
+                  className="px-3 py-1.5 text-xs font-bold text-slate-600 bg-white border border-slate-200 rounded-lg hover:bg-slate-50 cursor-pointer"
+                >
+                  지침 비우기
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    try {
+                      localStorage.setItem(STORAGE_KEY_SETTINGS, JSON.stringify(settings));
+                    } catch {}
+                    showToast('✅ 추가 고정 지침이 저장되었습니다.');
+                    setShowFixedModal(false);
+                  }}
+                  className="px-4 py-1.5 text-xs font-bold text-white bg-gradient-to-r from-orange-500 to-amber-600 rounded-lg shadow-sm hover:brightness-105 cursor-pointer"
+                >
+                  저장 후 닫기
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );

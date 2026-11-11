@@ -5,6 +5,7 @@ import {
   generateDocxBlob,
 } from '../utils/docxExporter';
 import { parseManuscriptToParagraphs } from '../utils/paragraphParser';
+import { OptionSelectModal, OptionItem } from './OptionSelectModal';
 import {
   Upload,
   Trash2,
@@ -16,6 +17,7 @@ import {
   Sparkles,
   Bold,
   Edit3,
+  ChevronDown,
 } from 'lucide-react';
 
 interface Props {
@@ -49,15 +51,90 @@ const DEFAULT_CONFIG: DocxExportConfig = {
 
 const STORAGE_KEY_MANUSCRIPT_DRAFT = 'writing_helper_manuscript_draft_v1';
 
+// 단일 음절 및 불완전 어근/조사 강조 원천 방지 목록
+const FORBIDDEN_EMPHASIS_WORDS = new Set([
+  '하', '않', '있', '없', '되', '보', '한', '된', '이', '가', '은', '는', '을', '를',
+  '의', '에', '와', '과', '도', '로', '고', '며', '서', '라', '즉', '또', '이것', '저것',
+  '그것', '사람', '인간', '경우', '때문', '사실', '대한', '위해', '것', '수', '때'
+]);
+
+// 서식 옵션 리스트
+const FONT_FAMILY_OPTIONS: OptionItem[] = [
+  { value: '맑은 고딕', label: '맑은 고딕 (표준 권장)', badge: '권장' },
+  { value: 'KoPub바탕', label: 'KoPub바탕 (출판용)' },
+  { value: '본고딕', label: '본고딕 (Noto Sans KR)' },
+  { value: '나눔명조', label: '나눔명조' },
+  { value: '나눔고딕', label: '나눔고딕' },
+  { value: '바탕체', label: '바탕체' },
+];
+
+const FONT_SIZE_OPTIONS: OptionItem[] = [
+  { value: '10', label: '10pt (표준 규격)', badge: '표준' },
+  { value: '10.5', label: '10.5pt' },
+  { value: '11', label: '11pt (가독성 우수)' },
+  { value: '9.5', label: '9.5pt' },
+  { value: '12', label: '12pt' },
+];
+
+// *본문 줄간격 선택옵션: 1.15, 1.25, 1.35, 1.4, 1.45 (사용자 요청: 나머지는 삭제)
+const LINE_HEIGHT_OPTIONS: OptionItem[] = [
+  { value: '1.15', label: '1.15' },
+  { value: '1.25', label: '1.25' },
+  { value: '1.35', label: '1.35 (표준 집필)', badge: '표준' },
+  { value: '1.4', label: '1.4' },
+  { value: '1.45', label: '1.45' },
+];
+
+const ALIGNMENT_OPTIONS: OptionItem[] = [
+  { value: 'both', label: '양쪽 정렬 (표준 권장)', badge: '권장' },
+  { value: 'left', label: '왼쪽 정렬' },
+  { value: 'center', label: '가운데 정렬' },
+];
+
+const OUTLINE_FORMAT_OPTIONS: OptionItem[] = [
+  { value: '1.', label: '1. 2. 3. (표준 아라비아 숫자)', badge: '표준' },
+  { value: '1)', label: '1) 2) 3)' },
+  { value: '1-', label: '1- 2- 3-' },
+];
+
+const SCRIPTURE_COLOR_OPTIONS: OptionItem[] = [
+  { value: 'EA580C', label: '주황색 (#EA580C, 표준 권장)', badge: '표준' },
+  { value: '1E3A8A', label: '감청색 (#1E3A8A)' },
+  { value: '334155', label: '짙은 회색 (#334155)' },
+];
+
+interface CustomSelectTriggerProps {
+  label: string;
+  onClick: () => void;
+}
+
+function CustomSelectTrigger({ label, onClick }: CustomSelectTriggerProps) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="w-full py-2 sm:py-2.5 px-2.5 cursor-pointer rounded-[8px] text-[12px] font-bold whitespace-nowrap overflow-hidden text-ellipsis transition-all bg-gradient-to-br from-white to-[#ffedd5] text-[#c2410c] border border-[#fdba74] shadow-[0_2px_5px_rgba(249,115,22,0.1)] hover:border-orange-400 active:bg-orange-50/50 flex items-center justify-between text-left group"
+    >
+      <span className="truncate pr-1 font-bold">{label}</span>
+      <ChevronDown className="w-3.5 h-3.5 text-[#ea580c] group-hover:text-[#c2410c] flex-shrink-0 transition-colors" />
+    </button>
+  );
+}
+
 // 원고 내용 사전 분석을 통해 강조할 핵심 단어 및 어구를 자동으로 추출하는 지능형 분석기
-// 규칙: 단락마다 문맥 핵심 내용 및 정의 단어를 파악하여 단락별 고유 강조어구 목록 반환
+// 규칙: 1글자 단어 원천 배제, 2글자 이상 의미 명사 및 핵심 어구만 등록
 export function autoDetectEmphasisKeywords(text: string): string[] {
   if (!text || !text.trim()) return [];
   const parsed = parseManuscriptToParagraphs(text);
   const found = new Set<string>();
   parsed.forEach((p) => {
     if (p.emphasisPhrases) {
-      p.emphasisPhrases.forEach((w) => found.add(w));
+      p.emphasisPhrases.forEach((w) => {
+        const clean = w.trim().replace(/^[*_~`]+|[*_~`]+$/g, '');
+        if (clean.length >= 2 && !FORBIDDEN_EMPHASIS_WORDS.has(clean)) {
+          found.add(clean);
+        }
+      });
     }
   });
   return Array.from(found);
@@ -73,6 +150,12 @@ export const FormatConversionPanel: React.FC<Props> = ({ initialText = '', onSho
   const [activeStep, setActiveStep] = useState<'input' | 'preview'>('input');
   const [isExporting, setIsExporting] = useState(false);
   const [showConfigSettings, setShowConfigSettings] = useState(false);
+  const [activeModal, setActiveModal] = useState<{
+    title: string;
+    options: OptionItem[];
+    selectedValue: string;
+    onSelect: (val: string) => void;
+  } | null>(null);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -85,7 +168,10 @@ export const FormatConversionPanel: React.FC<Props> = ({ initialText = '', onSho
         const parsed = JSON.parse(savedConfig);
         setConfig((prev) => ({ ...prev, ...parsed }));
         if (parsed.emphasisWords) {
-          setEmphasisInput(parsed.emphasisWords.join(', '));
+          const sanitized = (parsed.emphasisWords as string[])
+            .map((w) => w.trim().replace(/^[*_~`]+|[*_~`]+$/g, ''))
+            .filter((w) => w.length >= 2 && !FORBIDDEN_EMPHASIS_WORDS.has(w));
+          setEmphasisInput(sanitized.join(', '));
         }
       }
 
@@ -130,12 +216,13 @@ export const FormatConversionPanel: React.FC<Props> = ({ initialText = '', onSho
   };
 
   // Update emphasis words array when string changes
+  // 단일 음절(1글자: 하, 않, 있 등) 및 조사/어근 분리어는 원천 차단
   const handleEmphasisWordsChange = (val: string) => {
     setEmphasisInput(val);
     const words = val
       .split(',')
-      .map((w) => w.trim())
-      .filter((w) => w.length > 0);
+      .map((w) => w.trim().replace(/^[*_~`]+|[*_~`]+$/g, ''))
+      .filter((w) => w.length >= 2 && !FORBIDDEN_EMPHASIS_WORDS.has(w));
     setConfig((prev) => ({ ...prev, emphasisWords: words }));
   };
 
@@ -192,7 +279,12 @@ export const FormatConversionPanel: React.FC<Props> = ({ initialText = '', onSho
     const allDetected = new Set<string>();
     parsed.forEach((p) => {
       if (p.emphasisPhrases) {
-        p.emphasisPhrases.forEach((phrase) => allDetected.add(phrase));
+        p.emphasisPhrases.forEach((phrase) => {
+          const clean = phrase.trim().replace(/^[*_~`]+|[*_~`]+$/g, '');
+          if (clean.length >= 2 && !FORBIDDEN_EMPHASIS_WORDS.has(clean)) {
+            allDetected.add(clean);
+          }
+        });
       }
     });
 
@@ -222,7 +314,12 @@ export const FormatConversionPanel: React.FC<Props> = ({ initialText = '', onSho
     const allDetected = new Set<string>();
     parsed.forEach((p) => {
       if (p.emphasisPhrases) {
-        p.emphasisPhrases.forEach((phrase) => allDetected.add(phrase));
+        p.emphasisPhrases.forEach((phrase) => {
+          const clean = phrase.trim().replace(/^[*_~`]+|[*_~`]+$/g, '');
+          if (clean.length >= 2 && !FORBIDDEN_EMPHASIS_WORDS.has(clean)) {
+            allDetected.add(clean);
+          }
+        });
       }
     });
 
@@ -408,12 +505,12 @@ export const FormatConversionPanel: React.FC<Props> = ({ initialText = '', onSho
          ======================================================== */}
       {activeStep === 'input' && (
         <div className="flex flex-col gap-2 animate-in fade-in duration-150">
-          {/* 빠른 불러오기 툴바 (클립보드 버튼 삭제, 3개 버튼으로 간결화) */}
+          {/* 빠른 불러오기 툴바 (결과물 형식 버튼과 동일한 크기와 디자인) */}
           <div className="grid grid-cols-3 gap-1.5">
             <button
               type="button"
               onClick={() => fileInputRef.current?.click()}
-              className="flex items-center justify-center gap-1.5 py-1.5 px-2 bg-gradient-to-br from-white to-[#ffedd5] hover:border-orange-400 text-[#c2410c] border border-[#fdba74] rounded-[8px] text-xs font-bold shadow-xs cursor-pointer active:scale-98 transition"
+              className="flex items-center justify-center gap-1.5 py-2 sm:py-2.5 px-2 bg-gradient-to-br from-white to-[#ffedd5] hover:border-orange-400 text-[#c2410c] border border-[#fdba74] rounded-[8px] text-[12px] font-bold shadow-[0_2px_5px_rgba(249,115,22,0.1)] cursor-pointer active:scale-98 transition"
             >
               <Upload className="w-3.5 h-3.5 text-orange-600" />
               <span>파일 열기</span>
@@ -421,34 +518,35 @@ export const FormatConversionPanel: React.FC<Props> = ({ initialText = '', onSho
             <button
               type="button"
               onClick={() => setShowConfigSettings(!showConfigSettings)}
-              className="flex items-center justify-center gap-1.5 py-1.5 px-2 bg-gradient-to-br from-white to-[#ffedd5] hover:border-orange-400 text-slate-700 border border-[#fdba74] rounded-[8px] text-xs font-bold shadow-xs cursor-pointer active:scale-98 transition"
+              className="flex items-center justify-center gap-1.5 py-2 sm:py-2.5 px-2 bg-gradient-to-br from-white to-[#ffedd5] hover:border-orange-400 text-[#c2410c] border border-[#fdba74] rounded-[8px] text-[12px] font-bold shadow-[0_2px_5px_rgba(249,115,22,0.1)] cursor-pointer active:scale-98 transition"
             >
-              <SlidersHorizontal className="w-3.5 h-3.5 text-slate-600" />
+              <SlidersHorizontal className="w-3.5 h-3.5 text-orange-600" />
               <span>서식 규정</span>
             </button>
             <button
               type="button"
               onClick={handleClearAllManuscript}
-              className="flex items-center justify-center gap-1.5 py-1.5 px-2 bg-slate-100 hover:bg-slate-200 text-slate-600 border border-slate-300 rounded-[8px] text-xs font-bold shadow-xs cursor-pointer active:scale-98 transition"
+              className="flex items-center justify-center gap-1.5 py-2 sm:py-2.5 px-2 bg-gradient-to-br from-white to-[#ffedd5] hover:border-orange-400 text-[#c2410c] border border-[#fdba74] rounded-[8px] text-[12px] font-bold shadow-[0_2px_5px_rgba(249,115,22,0.1)] cursor-pointer active:scale-98 transition"
               title="원고 내용과 분석 결과를 모두 비웁니다"
             >
-              <Trash2 className="w-3.5 h-3.5" />
+              <Trash2 className="w-3.5 h-3.5 text-orange-600" />
               <span>비우기</span>
             </button>
           </div>
 
-          {/* 원고 입력 에어리어 (모바일 당겨서 새로고침 방지를 위한 overscroll-contain 적용) */}
+          {/* 원고 입력 에어리어 (하단 여백 없이 세로로 시원하게 확대) */}
           <textarea
             value={inputText}
             onChange={(e) => handleInputTextChange(e.target.value)}
-            className="w-full h-[200px] sm:h-[260px] p-2.5 border border-[#fdba74] rounded-xl text-xs bg-white text-[#1e293b] outline-none shadow-inner resize-none leading-relaxed focus:ring-1 focus:ring-orange-400 font-mono overscroll-contain"
+            placeholder="서식을 지정할 설교문 또는 강의 원고를 입력하거나 위의 [파일 열기] 버튼으로 불러오세요."
+            className="w-full h-[calc(100dvh-270px)] min-h-[380px] sm:min-h-[460px] p-3 border border-[#fdba74] rounded-xl text-xs bg-white text-[#1e293b] outline-none shadow-inner resize-none leading-relaxed focus:ring-1 focus:ring-orange-400 font-mono overscroll-contain mb-1"
           />
 
           {/* 원고 서식 적용 및 미리보기 메인 버튼 */}
           <button
             type="button"
             onClick={() => handleAnalyzeManuscript()}
-            className="w-full py-3 rounded-xl bg-gradient-to-r from-orange-500 via-amber-500 to-orange-600 hover:from-orange-600 hover:to-amber-600 text-white font-black text-xs shadow-md transition active:scale-98 cursor-pointer flex items-center justify-center gap-1.5"
+            className="w-full py-2.5 sm:py-3 rounded-xl bg-gradient-to-r from-orange-500 via-amber-500 to-orange-600 hover:from-orange-600 hover:to-amber-600 text-white font-black text-xs shadow-md transition active:scale-98 cursor-pointer flex items-center justify-center gap-1.5"
           >
             <Sparkles className="w-4 h-4 text-amber-200" />
             <span>원고 서식 적용 및 미리보기</span>
@@ -487,8 +585,8 @@ export const FormatConversionPanel: React.FC<Props> = ({ initialText = '', onSho
             </div>
           </div>
 
-          {/* 실제 문서 형태의 미리보기 창 (성경본문 앞/뒤 0.5cm 들여쓰기 반영 및 장이름-본문 사이 빈줄 제거) */}
-          <div className="max-h-[360px] sm:max-h-[440px] overflow-y-auto overscroll-contain bg-white p-4 sm:p-6 rounded-xl border border-orange-200 shadow-inner font-['Malgun_Gothic'] text-slate-800 space-y-2">
+          {/* 실제 문서 형태의 미리보기 창 (하단 여백 없이 세로로 시원하게 확대) */}
+          <div className="h-[calc(100dvh-280px)] min-h-[380px] sm:min-h-[460px] overflow-y-auto overscroll-contain bg-white p-4 sm:p-6 rounded-xl border border-orange-200 shadow-inner font-['Malgun_Gothic'] text-slate-800 space-y-2 mb-1">
             {paragraphs.map((p) => {
               if (p.isOutline) {
                 const cleanOutlineText = p.originalText
@@ -519,7 +617,7 @@ export const FormatConversionPanel: React.FC<Props> = ({ initialText = '', onSho
                   );
                 case 'doc_subtitle':
                   return (
-                    <h2 key={p.id} className="text-[12pt] font-bold text-slate-600 text-justify mb-3">
+                    <h2 key={p.id} className="text-[14pt] font-bold text-slate-700 text-justify mb-3 leading-snug">
                       {renderFormattedPreviewText(p.originalText, false)}
                     </h2>
                   );
@@ -671,62 +769,75 @@ export const FormatConversionPanel: React.FC<Props> = ({ initialText = '', onSho
           <div className="grid grid-cols-2 gap-2 mb-2">
             <div>
               <label className="text-[10px] font-bold text-slate-600 block mb-0.5">본문 글꼴</label>
-              <select
-                value={config.fontFamily}
-                onChange={(e) => setConfig({ ...config, fontFamily: e.target.value })}
-                className="w-full h-7 px-1.5 border border-[#fdba74] rounded-md text-[11px] bg-white"
-              >
-                <option value="맑은 고딕">맑은 고딕 (표준 권장)</option>
-                <option value="KoPub바탕">KoPub바탕 (출판용)</option>
-                <option value="본고딕">본고딕 (Noto Sans KR)</option>
-                <option value="나눔명조">나눔명조</option>
-                <option value="나눔고딕">나눔고딕</option>
-                <option value="바탕체">바탕체</option>
-              </select>
+              <CustomSelectTrigger
+                label={
+                  FONT_FAMILY_OPTIONS.find((o) => o.value === config.fontFamily)?.label ||
+                  config.fontFamily
+                }
+                onClick={() =>
+                  setActiveModal({
+                    title: '본문 글꼴 선택',
+                    options: FONT_FAMILY_OPTIONS,
+                    selectedValue: config.fontFamily,
+                    onSelect: (val) => setConfig({ ...config, fontFamily: val }),
+                  })
+                }
+              />
             </div>
 
             <div>
               <label className="text-[10px] font-bold text-slate-600 block mb-0.5">본문 글자 크기</label>
-              <select
-                value={config.bodyFontSizePt}
-                onChange={(e) => setConfig({ ...config, bodyFontSizePt: Number(e.target.value) })}
-                className="w-full h-7 px-1.5 border border-[#fdba74] rounded-md text-[11px] bg-white"
-              >
-                <option value={10}>10pt (표준 규격)</option>
-                <option value={10.5}>10.5pt</option>
-                <option value={11}>11pt (가독성 우수)</option>
-                <option value={9.5}>9.5pt</option>
-                <option value={12}>12pt</option>
-              </select>
+              <CustomSelectTrigger
+                label={
+                  FONT_SIZE_OPTIONS.find((o) => o.value === String(config.bodyFontSizePt))?.label ||
+                  `${config.bodyFontSizePt}pt`
+                }
+                onClick={() =>
+                  setActiveModal({
+                    title: '본문 글자 크기 선택',
+                    options: FONT_SIZE_OPTIONS,
+                    selectedValue: String(config.bodyFontSizePt),
+                    onSelect: (val) => setConfig({ ...config, bodyFontSizePt: Number(val) }),
+                  })
+                }
+              />
             </div>
 
             <div>
               <label className="text-[10px] font-bold text-slate-600 block mb-0.5">본문 줄 간격</label>
-              <select
-                value={config.lineHeightRatio}
-                onChange={(e) => setConfig({ ...config, lineHeightRatio: Number(e.target.value) })}
-                className="w-full h-7 px-1.5 border border-[#fdba74] rounded-md text-[11px] bg-white"
-              >
-                <option value={1.35}>1.35 (표준 집필)</option>
-                <option value={1.5}>1.50 (여유 있는 행간)</option>
-                <option value={1.6}>1.60 (웹 문서 표준)</option>
-                <option value={1.8}>1.80 (학술 스타일)</option>
-              </select>
+              <CustomSelectTrigger
+                label={
+                  LINE_HEIGHT_OPTIONS.find((o) => o.value === String(config.lineHeightRatio))?.label ||
+                  `${config.lineHeightRatio}`
+                }
+                onClick={() =>
+                  setActiveModal({
+                    title: '본문 줄 간격 선택',
+                    options: LINE_HEIGHT_OPTIONS,
+                    selectedValue: String(config.lineHeightRatio),
+                    onSelect: (val) => setConfig({ ...config, lineHeightRatio: Number(val) }),
+                  })
+                }
+              />
             </div>
 
             <div>
               <label className="text-[10px] font-bold text-slate-600 block mb-0.5">문단 정렬</label>
-              <select
-                value={config.alignment}
-                onChange={(e) =>
-                  setConfig({ ...config, alignment: e.target.value as 'both' | 'left' | 'center' })
+              <CustomSelectTrigger
+                label={
+                  ALIGNMENT_OPTIONS.find((o) => o.value === config.alignment)?.label ||
+                  (config.alignment === 'both' ? '양쪽 정렬 (표준 권장)' : config.alignment)
                 }
-                className="w-full h-7 px-1.5 border border-[#fdba74] rounded-md text-[11px] bg-white"
-              >
-                <option value="both">양쪽 정렬 (표준 권장)</option>
-                <option value="left">왼쪽 정렬</option>
-                <option value="center">가운데 정렬</option>
-              </select>
+                onClick={() =>
+                  setActiveModal({
+                    title: '문단 정렬 선택',
+                    options: ALIGNMENT_OPTIONS,
+                    selectedValue: config.alignment,
+                    onSelect: (val) =>
+                      setConfig({ ...config, alignment: val as 'both' | 'left' | 'center' }),
+                  })
+                }
+              />
             </div>
           </div>
 
@@ -734,32 +845,42 @@ export const FormatConversionPanel: React.FC<Props> = ({ initialText = '', onSho
           <div className="grid grid-cols-2 gap-2 mb-2">
             <div>
               <label className="text-[10px] font-bold text-slate-600 block mb-0.5">개요 번호 형식</label>
-              <select
-                value={config.outlineNumberFormat}
-                onChange={(e) =>
-                  setConfig({ ...config, outlineNumberFormat: e.target.value as '1.' | '1)' | '1-' })
+              <CustomSelectTrigger
+                label={
+                  OUTLINE_FORMAT_OPTIONS.find((o) => o.value === config.outlineNumberFormat)?.label ||
+                  config.outlineNumberFormat
                 }
-                className="w-full h-7 px-1.5 border border-[#fdba74] rounded-md text-[11px] bg-white"
-              >
-                <option value="1.">1. 2. 3. (표준 아라비아 숫자)</option>
-                <option value="1)">1) 2) 3)</option>
-                <option value="1-">1- 2- 3-</option>
-              </select>
+                onClick={() =>
+                  setActiveModal({
+                    title: '개요 번호 형식 선택',
+                    options: OUTLINE_FORMAT_OPTIONS,
+                    selectedValue: config.outlineNumberFormat,
+                    onSelect: (val) =>
+                      setConfig({ ...config, outlineNumberFormat: val as '1.' | '1)' | '1-' }),
+                  })
+                }
+              />
             </div>
 
             <div>
               <label className="text-[10px] font-bold text-slate-600 block mb-0.5">
                 성경 인용 색상 (9pt 전용)
               </label>
-              <select
-                value={config.scriptureColor}
-                onChange={(e) => setConfig({ ...config, scriptureColor: e.target.value })}
-                className="w-full h-7 px-1.5 border border-[#fdba74] rounded-md text-[11px] bg-white"
-              >
-                <option value="E65100">주황색 (#E65100, 표준 권장)</option>
-                <option value="1E3A8A">감청색 (#1E3A8A)</option>
-                <option value="334155">짙은 회색 (#334155)</option>
-              </select>
+              <CustomSelectTrigger
+                label={
+                  SCRIPTURE_COLOR_OPTIONS.find(
+                    (o) => o.value === config.scriptureColor.replace('#', '')
+                  )?.label || config.scriptureColor
+                }
+                onClick={() =>
+                  setActiveModal({
+                    title: '성경 인용 색상 선택',
+                    options: SCRIPTURE_COLOR_OPTIONS,
+                    selectedValue: config.scriptureColor.replace('#', ''),
+                    onSelect: (val) => setConfig({ ...config, scriptureColor: val }),
+                  })
+                }
+              />
             </div>
           </div>
 
@@ -782,6 +903,18 @@ export const FormatConversionPanel: React.FC<Props> = ({ initialText = '', onSho
             </button>
           </div>
         </div>
+      )}
+
+      {/* 웜 오렌지 테마 서식 선택 모달 (Android 기본 브라우저 select 모달 대체) */}
+      {activeModal && (
+        <OptionSelectModal
+          isOpen={true}
+          title={activeModal.title}
+          options={activeModal.options}
+          selectedValue={activeModal.selectedValue}
+          onSelect={activeModal.onSelect}
+          onClose={() => setActiveModal(null)}
+        />
       )}
     </div>
   );
